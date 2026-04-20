@@ -1,1 +1,64 @@
 # dart_analysis
+
+DART 공시 분석 서비스를 위한 최소 수직 슬라이스(MVP Phase 1+) 저장소입니다.
+
+## 현재 구현 범위
+- Django 최소 프로젝트 스캐폴드
+- `apps.dart_analysis` 앱
+- 환경변수 `DART_API_KEY` 안전 로딩
+- DART 최소 클라이언트
+  - `corpCode.xml` 기반 company_name -> corp_code 해석(정확 일치만)
+  - `corp_code` 기반 최근 공시 목록 최소 메타데이터 live 조회 (`list.json`)
+- 입력 검증 + 초기 API 엔드포인트
+
+## 빠른 실행
+
+### 1) 의존성 설치
+```bash
+pip install -r requirements.txt
+```
+
+### 2) 환경변수 설정
+```bash
+export DART_API_KEY="YOUR_KEY"
+```
+
+> 보안상 실제 키 값은 로그나 응답에 노출하지 마세요.
+
+### 3) 개발 서버 실행
+```bash
+python manage.py migrate
+python manage.py runserver
+```
+
+## 검증 엔드포인트
+- URL: `GET /api/v1/dart/validate`
+- 또는: `POST /api/v1/dart/validate`
+
+### 예시 1: company_name 기반(공식 corpCode exact 매칭 후 조회)
+```bash
+curl "http://127.0.0.1:8000/api/v1/dart/validate?company_name=삼성전자"
+```
+
+### 예시 2: corp_code 기반(live 공시 목록 최소 조회)
+```bash
+curl "http://127.0.0.1:8000/api/v1/dart/validate?corp_code=00126380"
+```
+
+## 응답 동작 요약
+- `corp_code` 입력: 기존 동작 유지, 즉시 `list.json` 최소 조회
+- 조회 응답은 `raw_items`(원본 최소 메타데이터), `normalized_items`(카테고리/시그널), `summary`(집계)로 분리 반환
+- `company_name` 입력:
+  - `corpCode.xml`에서 exact company_name 매칭 1건이면 `corp_code`로 해석 후 `list.json` 조회
+  - 매칭 0건이면 `unresolved_company_name` 오류 반환
+  - 매칭 2건 이상이면 `ambiguous_company_name` 오류 반환
+- 추정/유사도 기반 매칭은 수행하지 않음
+
+## 테스트 실행
+```bash
+python manage.py test apps.dart_analysis
+```
+
+## 참고
+- 현재 단계에서는 **전체 공시 본문 파싱/신호 추출/평가/최종 한국어 리포트 생성**을 아직 구현하지 않았습니다.
+- 다음 단계는 공시 카테고리 정규화와 핵심 시그널 추출 연결입니다.
