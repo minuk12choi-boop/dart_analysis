@@ -8,6 +8,7 @@ from django.test import Client, TestCase
 from clients.dart_client import DartAPIRequestError, DartClient
 from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
+from services.document_xml_inspector import DocumentXMLInspectionError, DocumentXMLInspector
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.first_pass_evaluator import FirstPassEvaluator
 
@@ -18,8 +19,17 @@ def _build_test_zip_payload() -> bytes:
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("report.xml", "<root></root>")
-        zf.writestr("index.htm", "<html></html>")
+        zf.writestr("20260417000682.xml", "<ROOT><HEAD/><BODY/></ROOT>")
+    return buffer.getvalue()
+
+
+def _build_invalid_xml_zip_payload() -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("20260417000682.xml", "<ROOT><HEAD></ROOT>")
     return buffer.getvalue()
 
 
@@ -73,13 +83,30 @@ class DocumentZipInspectorTests(TestCase):
         result = self.inspector.inspect(_build_test_zip_payload())
 
         self.assertTrue(result["is_zip"])
-        self.assertEqual(result["entry_count"], 2)
+        self.assertEqual(result["entry_count"], 1)
         names = [entry["name"] for entry in result["entries"]]
-        self.assertIn("report.xml", names)
+        self.assertIn("20260417000682.xml", names)
 
     def test_non_zip_payload_failure_path(self):
         with self.assertRaises(DocumentZipInspectionError):
             self.inspector.inspect(b"not-a-zip")
+
+
+class DocumentXMLInspectorTests(TestCase):
+    def setUp(self) -> None:
+        self.inspector = DocumentXMLInspector()
+
+    def test_successful_xml_inspection_from_single_xml_zip(self):
+        result = self.inspector.inspect(_build_test_zip_payload())
+        self.assertTrue(result["parsing_succeeded"])
+        self.assertTrue(result["selected_entry_is_xml"])
+        self.assertEqual(result["selected_entry_name"], "20260417000682.xml")
+        self.assertEqual(result["root_tag"], "ROOT")
+        self.assertEqual(result["top_level_child_count"], 2)
+
+    def test_xml_parse_failure_path(self):
+        with self.assertRaises(DocumentXMLInspectionError):
+            self.inspector.inspect(_build_invalid_xml_zip_payload())
 
 
 class FirstPassEvaluatorTests(TestCase):
@@ -312,6 +339,7 @@ class DartValidationViewTests(TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["document_access"]["rcept_no"], "20260101000001")
         self.assertIn("zip_inspection", payload)
+        self.assertIn("xml_inspection", payload)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_failure_returns_structured_error(self, mock_fetch_doc):
@@ -339,6 +367,22 @@ class DartValidationViewTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "original_document_zip_inspection_failed")
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    def test_original_document_xml_inspection_failure_returns_structured_error(self, mock_fetch_doc):
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "content": _build_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
+
+        self.assertEqual(response.status_code, 502)
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "original_document_xml_inspection_failed")
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_response_shape_is_preserved(self, mock_fetch):
