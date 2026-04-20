@@ -77,8 +77,9 @@ python manage.py test apps.dart_analysis
 
 ## 원문 접근 메타데이터
 - `/api/v1/dart/document`는 `rcept_no` 기준으로 `document.xml` 접근을 시도합니다.
-- 현재 단계에서는 원문 본문 파싱 없이 `document_access`(byte_size/content_type/viewer_url)와 `zip_inspection`(ZIP 여부, 엔트리 수, 엔트리명, 압축/원본 크기, 파일형식 힌트)만 반환합니다.
-- 본문 파싱/섹션 추출은 아직 구현하지 않았습니다.
+- 현재 단계에서는 원문 본문 파싱 없이 `document_access`, `zip_inspection`, `xml_inspection`을 반환합니다.
+- `xml_inspection`은 XML 구조 메타데이터(root tag, namespace, 최상위 child 태그/개수)만 제공합니다.
+- 본문 텍스트 추출/섹션 의미 해석은 아직 구현하지 않았습니다.
 
 
 ## 로컬 실데이터 ZIP 검증 스크립트 (Windows + VS Code)

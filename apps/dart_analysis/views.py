@@ -12,6 +12,7 @@ from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
 from services.first_pass_evaluator import FirstPassEvaluator
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
+from services.document_xml_inspector import DocumentXMLInspectionError, DocumentXMLInspector
 
 
 class DartValidationView(View):
@@ -320,15 +321,34 @@ class DartOriginalDocumentView(View):
                 status=502,
             )
 
+        xml_inspector = DocumentXMLInspector()
+        try:
+            xml_inspection = xml_inspector.inspect(payload["content"])
+        except DocumentXMLInspectionError as exc:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "original_document_xml_inspection_failed",
+                        "message": str(exc),
+                    },
+                    "input": {"rcept_no": rcept_no},
+                    "document_access": document_access,
+                    "zip_inspection": zip_inspection,
+                },
+                status=502,
+            )
+
         return JsonResponse(
             {
                 "ok": True,
                 "input": {"rcept_no": rcept_no},
                 "document_access": document_access,
                 "zip_inspection": zip_inspection,
+                "xml_inspection": xml_inspection,
                 "notes": [
-                    "현재 단계는 원문 ZIP 아카이브 수준 메타데이터만 제공합니다.",
-                    "본문 섹션 파싱은 아직 구현하지 않았습니다.",
+                    "현재 단계는 XML 구조 메타데이터(root tag/최상위 child)까지만 제공합니다.",
+                    "본문 텍스트/섹션 의미 해석은 아직 구현하지 않았습니다.",
                 ],
             }
         )
