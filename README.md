@@ -62,3 +62,9 @@ python manage.py test apps.dart_analysis
 ## 참고
 - 현재 단계에서는 **전체 공시 본문 파싱/신호 추출/평가/최종 한국어 리포트 생성**을 아직 구현하지 않았습니다.
 - 다음 단계는 공시 카테고리 정규화와 핵심 시그널 추출 연결입니다.
+
+
+## analysis 블록(1차 규칙 평가)
+- `implemented`, `basis`, `risk_flags`, `positive_flags`, `neutral_flags`, `notes`, `evaluation_summary`를 반환합니다.
+- 근거는 공시 목록 메타데이터 및 제목 기반 규칙(`report_nm`)으로 제한됩니다.
+- 본문 파싱 전 단계이므로 최종 투자 판단으로 사용하면 안 됩니다.

@@ -8,6 +8,7 @@ from django.test import Client, TestCase
 from clients.dart_client import DartAPIRequestError, DartClient
 from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
+from services.first_pass_evaluator import FirstPassEvaluator
 
 
 class DisclosureNormalizerTests(TestCase):
@@ -43,6 +44,56 @@ class DisclosureNormalizerTests(TestCase):
         signals = self.normalizer.detect_signals("전환사채권발행결정 및 소송 등의 제기")
         self.assertIn("convertible_bond", signals)
         self.assertIn("litigation", signals)
+
+
+class FirstPassEvaluatorTests(TestCase):
+    def setUp(self) -> None:
+        self.evaluator = FirstPassEvaluator()
+
+    def test_financing_heavy_case_produces_risk_flags(self):
+        summary = {
+            "total_disclosures": 2,
+            "category_counts": {"financing": 2},
+            "detected_signals": {"rights_offering": 1, "convertible_bond": 1},
+        }
+        result = self.evaluator.evaluate(summary=summary, normalized_items=[])
+
+        flags = [flag["flag"] for flag in result["risk_flags"]]
+        self.assertIn("financing_related_signal", flags)
+
+    def test_litigation_case_produces_risk_flags(self):
+        summary = {
+            "total_disclosures": 1,
+            "category_counts": {"legal_or_regulatory": 1},
+            "detected_signals": {"litigation": 1},
+        }
+        result = self.evaluator.evaluate(summary=summary, normalized_items=[])
+
+        flags = [flag["flag"] for flag in result["risk_flags"]]
+        self.assertIn("legal_or_regulatory_signal", flags)
+
+    def test_supply_contract_case_produces_positive_non_final_flag(self):
+        summary = {
+            "total_disclosures": 1,
+            "category_counts": {"contract_or_business": 1},
+            "detected_signals": {"supply_contract": 1},
+        }
+        result = self.evaluator.evaluate(summary=summary, normalized_items=[])
+
+        flags = [flag["flag"] for flag in result["positive_flags"]]
+        self.assertIn("business_event_detected", flags)
+        self.assertTrue(any("확정적 개선 판단은 보류" in result["evaluation_summary"] for _ in [0]))
+
+    def test_periodic_only_case_produces_neutral_flag(self):
+        summary = {
+            "total_disclosures": 1,
+            "category_counts": {"periodic_report": 1},
+            "detected_signals": {"periodic_reporting": 1},
+        }
+        result = self.evaluator.evaluate(summary=summary, normalized_items=[])
+
+        flags = [flag["flag"] for flag in result["neutral_flags"]]
+        self.assertIn("periodic_reporting_only", flags)
 
 
 class DartValidationViewTests(TestCase):
@@ -88,6 +139,7 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["resolution"]["status"], "resolved")
         self.assertEqual(payload["input"]["corp_code"], "00126380")
         self.assertEqual(payload["disclosures"]["data"]["summary"]["total_disclosures"], 1)
+        self.assertIn("implemented", payload["analysis"])
         mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
@@ -162,6 +214,7 @@ class DartValidationViewTests(TestCase):
             payload["disclosures"]["data"]["normalized_items"][0]["normalized"]["category"],
             "financing",
         )
+        self.assertIn("risk_flags", payload["analysis"])
         mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
 
     def test_resolver_does_not_guess_non_exact_match(self):
@@ -206,3 +259,35 @@ class DartValidationViewTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "dart_list_fetch_failed")
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_response_shape_is_preserved(self, mock_fetch):
+        mock_fetch.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {
+                    "rcept_no": "20260101000001",
+                    "report_nm": "사업보고서",
+                    "rcept_dt": "20260101",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                }
+            ],
+        }
+
+        response = self.client.get("/api/v1/dart/validate", {"corp_code": "00126380"})
+        payload = response.json()
+
+        self.assertIn("input", payload)
+        self.assertIn("resolution", payload)
+        self.assertIn("dart_client", payload)
+        self.assertIn("lookup_plan", payload)
+        self.assertIn("disclosures", payload)
+        self.assertIn("analysis", payload)
+        self.assertIn("raw_items", payload["disclosures"]["data"])
+        self.assertIn("normalized_items", payload["disclosures"]["data"])
+        self.assertIn("summary", payload["disclosures"]["data"])

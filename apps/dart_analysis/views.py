@@ -10,6 +10,7 @@ from clients.dart_client import DartAPIRequestError, DartClient
 from core.env import MissingDartApiKeyError
 from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
+from services.first_pass_evaluator import FirstPassEvaluator
 
 
 class DartValidationView(View):
@@ -144,6 +145,17 @@ class DartValidationView(View):
                 )
 
         normalizer = DisclosureNormalizer()
+        evaluator = FirstPassEvaluator()
+
+        analysis: dict[str, Any] = {
+            "implemented": False,
+            "basis": {"source": "disclosure_list_metadata_only", "fields": []},
+            "risk_flags": [],
+            "positive_flags": [],
+            "neutral_flags": [],
+            "notes": ["corp_code 확인 전에는 1차 규칙 평가를 수행하지 않습니다."],
+            "evaluation_summary": "평가 대상을 확인한 뒤 1차 규칙 평가가 수행됩니다.",
+        }
 
         disclosures: dict[str, Any] = {
             "attempted": False,
@@ -168,6 +180,10 @@ class DartValidationView(View):
                         "summary": normalized_block["summary"],
                     },
                 }
+                analysis = evaluator.evaluate(
+                    summary=normalized_block["summary"],
+                    normalized_items=normalized_block["items"],
+                )
             except DartAPIRequestError as exc:
                 return JsonResponse(
                     {
@@ -200,10 +216,7 @@ class DartValidationView(View):
                     corp_code=corp_code,
                 ),
                 "disclosures": disclosures,
-                "analysis": {
-                    "implemented": False,
-                    "next": "공시 목록 카테고리 정규화 및 신호 추출 연결",
-                },
+                "analysis": analysis,
             }
         )
 
