@@ -79,3 +79,24 @@ python manage.py test apps.dart_analysis
 - `/api/v1/dart/document`는 `rcept_no` 기준으로 `document.xml` 접근을 시도합니다.
 - 현재 단계에서는 원문 본문 파싱 없이 `document_access`(byte_size/content_type/viewer_url)와 `zip_inspection`(ZIP 여부, 엔트리 수, 엔트리명, 압축/원본 크기, 파일형식 힌트)만 반환합니다.
 - 본문 파싱/섹션 추출은 아직 구현하지 않았습니다.
+
+
+## 로컬 실데이터 ZIP 검증 스크립트 (Windows + VS Code)
+현재 클라우드 환경에서 DART 외부 접근이 막힐 수 있으므로, 로컬에서 아래 명령으로 실데이터 검증을 수행할 수 있습니다.
+
+### PowerShell (VS Code Terminal)
+```powershell
+$env:DART_API_KEY="YOUR_KEY"
+python .\scripts\verify_dart_original_zip.py --corp-code 00126380 --page-count 5 --window-days 365
+```
+
+### 출력 필드
+- `selected_corp_code`
+- `selected_rcept_no`
+- `download_succeeded`
+- `valid_zip`
+- `zip_entry_count`
+- `zip_entry_names`
+
+성공 시 실제 ZIP 엔트리 목록이 `zip_entry_names`에 출력됩니다.
+네트워크 차단 시 오류 JSON(`error`, `detail`)을 그대로 출력합니다.
