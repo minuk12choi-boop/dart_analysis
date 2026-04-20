@@ -46,6 +46,15 @@ class DisclosureNormalizerTests(TestCase):
         self.assertIn("litigation", signals)
 
 
+
+
+class DartClientDocumentAccessTests(TestCase):
+    def test_viewer_url_generation_from_rcept_no(self):
+        client = DartClient(api_key="dummy")
+        url = client.build_viewer_url("20260101000001")
+        self.assertEqual(url, "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001")
+
+
 class FirstPassEvaluatorTests(TestCase):
     def setUp(self) -> None:
         self.evaluator = FirstPassEvaluator()
@@ -260,6 +269,34 @@ class DartValidationViewTests(TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "dart_list_fetch_failed")
 
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_metadata")
+    def test_original_document_fetch_success_with_mock(self, mock_fetch_doc):
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "byte_size": 1024,
+        }
+
+        response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["document_access"]["rcept_no"], "20260101000001")
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_metadata")
+    def test_original_document_fetch_failure_returns_structured_error(self, mock_fetch_doc):
+        mock_fetch_doc.side_effect = DartAPIRequestError("DART API 네트워크 오류: 테스트")
+
+        response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
+
+        self.assertEqual(response.status_code, 502)
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "original_document_fetch_failed")
+
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_response_shape_is_preserved(self, mock_fetch):
         mock_fetch.return_value = {
@@ -291,3 +328,4 @@ class DartValidationViewTests(TestCase):
         self.assertIn("raw_items", payload["disclosures"]["data"])
         self.assertIn("normalized_items", payload["disclosures"]["data"])
         self.assertIn("summary", payload["disclosures"]["data"])
+        self.assertIn("original_document_access", payload["disclosures"]["data"])

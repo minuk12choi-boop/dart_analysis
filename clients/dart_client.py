@@ -86,6 +86,28 @@ class DartClient:
             )
         return records
 
+
+    def build_viewer_url(self, rcept_no: str) -> str:
+        return f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
+
+    def fetch_original_document_metadata(self, rcept_no: str) -> dict[str, Any]:
+        if not rcept_no:
+            raise DartClientError("rcept_no가 필요합니다.")
+
+        params = {
+            "crtfc_key": self.api_key,
+            "rcept_no": rcept_no,
+        }
+        content, meta = self._request_bytes_with_meta("/document.xml", params)
+        content_type = meta.get("content_type", "")
+
+        return {
+            "rcept_no": rcept_no,
+            "viewer_url": self.build_viewer_url(rcept_no),
+            "content_type": content_type,
+            "byte_size": len(content),
+        }
+
     def fetch_disclosure_list(
         self,
         corp_code: str,
@@ -158,12 +180,17 @@ class DartClient:
             raise DartAPIRequestError("DART API 응답 JSON 파싱에 실패했습니다.") from exc
 
     def _request_bytes(self, path: str, params: dict[str, str]) -> bytes:
+        content, _ = self._request_bytes_with_meta(path, params)
+        return content
+
+    def _request_bytes_with_meta(self, path: str, params: dict[str, str]) -> tuple[bytes, dict[str, str]]:
         query = urlencode(params)
         url = f"{self.base_url}{path}?{query}"
         request = Request(url, headers={"Accept": "*/*"}, method="GET")
         try:
             with urlopen(request, timeout=20) as response:
-                return response.read()
+                content_type = response.headers.get("Content-Type", "")
+                return response.read(), {"content_type": content_type}
         except HTTPError as exc:
             raise DartAPIRequestError(f"DART API HTTP 오류: {exc.code}") from exc
         except URLError as exc:

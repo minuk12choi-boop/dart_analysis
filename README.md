@@ -45,9 +45,14 @@ curl "http://127.0.0.1:8000/api/v1/dart/validate?company_name=삼성전자"
 curl "http://127.0.0.1:8000/api/v1/dart/validate?corp_code=00126380"
 ```
 
+### 예시 3: rcept_no 기반 원문 접근 메타데이터 조회
+```bash
+curl "http://127.0.0.1:8000/api/v1/dart/document?rcept_no=20260101000001"
+```
+
 ## 응답 동작 요약
 - `corp_code` 입력: 기존 동작 유지, 즉시 `list.json` 최소 조회
-- 조회 응답은 `raw_items`(원본 최소 메타데이터), `normalized_items`(카테고리/시그널), `summary`(집계)로 분리 반환
+- 조회 응답은 `raw_items`(원본 최소 메타데이터), `normalized_items`(카테고리/시그널), `summary`(집계), `original_document_access`(rcept_no 기반 원문 접근 정보)로 분리 반환
 - `company_name` 입력:
   - `corpCode.xml`에서 exact company_name 매칭 1건이면 `corp_code`로 해석 후 `list.json` 조회
   - 매칭 0건이면 `unresolved_company_name` 오류 반환
@@ -68,3 +73,8 @@ python manage.py test apps.dart_analysis
 - `implemented`, `basis`, `risk_flags`, `positive_flags`, `neutral_flags`, `notes`, `evaluation_summary`를 반환합니다.
 - 근거는 공시 목록 메타데이터 및 제목 기반 규칙(`report_nm`)으로 제한됩니다.
 - 본문 파싱 전 단계이므로 최종 투자 판단으로 사용하면 안 됩니다.
+
+
+## 원문 접근 메타데이터
+- `/api/v1/dart/document`는 `rcept_no` 기준으로 `document.xml` 접근을 시도하고, 현재 단계에서는 `byte_size`, `content_type`, `viewer_url`만 반환합니다.
+- 본문 파싱/섹션 추출은 아직 구현하지 않았습니다.

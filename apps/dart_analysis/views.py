@@ -178,6 +178,10 @@ class DartValidationView(View):
                         "raw_items": disclosure_data.get("items", []),
                         "normalized_items": normalized_block["items"],
                         "summary": normalized_block["summary"],
+                        "original_document_access": _build_original_document_access(
+                            client=client,
+                            raw_items=disclosure_data.get("items", []),
+                        ),
                     },
                 }
                 analysis = evaluator.evaluate(
@@ -222,3 +226,83 @@ class DartValidationView(View):
 
     get = dispatch
     post = dispatch
+
+
+def _build_original_document_access(client: DartClient, raw_items: list[dict[str, Any]]) -> dict[str, Any]:
+    links = []
+    for item in raw_items:
+        rcept_no = item.get("rcept_no")
+        if not rcept_no:
+            continue
+        links.append(
+            {
+                "rcept_no": rcept_no,
+                "viewer_url": client.build_viewer_url(str(rcept_no)),
+            }
+        )
+    return {
+        "supported": True,
+        "fetch_endpoint": "/api/v1/dart/document",
+        "items": links,
+    }
+
+
+class DartOriginalDocumentView(View):
+    http_method_names = ["get"]
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        rcept_no = (request.GET.get("rcept_no") or "").strip()
+        if not rcept_no:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "invalid_input",
+                        "message": "rcept_no는 필수입니다.",
+                    },
+                    "input": {"rcept_no": rcept_no or None},
+                },
+                status=400,
+            )
+
+        try:
+            client = DartClient.from_env()
+        except MissingDartApiKeyError as exc:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "missing_dart_api_key",
+                        "message": str(exc),
+                    },
+                    "input": {"rcept_no": rcept_no},
+                },
+                status=500,
+            )
+
+        try:
+            data = client.fetch_original_document_metadata(rcept_no=rcept_no)
+        except DartAPIRequestError as exc:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "original_document_fetch_failed",
+                        "message": str(exc),
+                    },
+                    "input": {"rcept_no": rcept_no},
+                },
+                status=502,
+            )
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "input": {"rcept_no": rcept_no},
+                "document_access": data,
+                "notes": [
+                    "현재 단계는 원문 파일 접근 메타데이터(byte_size/content_type)만 제공합니다.",
+                    "본문 섹션 파싱은 아직 구현하지 않았습니다.",
+                ],
+            }
+        )
