@@ -29,7 +29,17 @@ def _build_invalid_xml_zip_payload() -> bytes:
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("20260417000682.xml", "<ROOT><HEAD></ROOT>")
+        zf.writestr("20260417000682.xml", '<?xml version="1.0" encoding="utf-8"?>\n<ROOT><HEAD/>\x01<BODY/></ROOT>')
+    return buffer.getvalue()
+
+
+def _build_unrecoverable_invalid_xml_zip_payload() -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("20260417000682.xml", '<?xml version="1.0" encoding="utf-8"?>\n<ROOT><HEAD></ROOT>')
     return buffer.getvalue()
 
 
@@ -103,10 +113,38 @@ class DocumentXMLInspectorTests(TestCase):
         self.assertEqual(result["selected_entry_name"], "20260417000682.xml")
         self.assertEqual(result["root_tag"], "ROOT")
         self.assertEqual(result["top_level_child_count"], 2)
+        self.assertIsNone(result["xml_parse_diagnostics"])
+        self.assertIsNone(result["xml_fallback_inspection"])
 
-    def test_xml_parse_failure_path(self):
-        with self.assertRaises(DocumentXMLInspectionError):
-            self.inspector.inspect(_build_invalid_xml_zip_payload())
+    def test_xml_parse_failure_with_fallback_sanitize_success_path(self):
+        result = self.inspector.inspect(_build_invalid_xml_zip_payload())
+
+        self.assertFalse(result["parsing_succeeded"])
+        self.assertIsNone(result["root_tag"])
+        diagnostics = result["xml_parse_diagnostics"]
+        self.assertEqual(diagnostics["selected_entry_name"], "20260417000682.xml")
+        self.assertIsNotNone(diagnostics["parser_line"])
+        self.assertIsNotNone(diagnostics["parser_column"])
+        self.assertIn("ROOT", diagnostics["sanitized_excerpt"])
+        self.assertIsNotNone(diagnostics["xml_declaration_text"])
+
+        fallback = result["xml_fallback_inspection"]
+        self.assertTrue(fallback["fallback_parsing_succeeded"])
+        self.assertTrue(fallback["sanitization_applied"])
+        self.assertEqual(fallback["root_tag"], "ROOT")
+        self.assertEqual(fallback["top_level_child_count"], 2)
+        self.assertGreaterEqual(len(fallback["sanitization_rules_applied"]), 1)
+
+    def test_xml_parse_failure_with_fallback_failure_path(self):
+        with self.assertRaises(DocumentXMLInspectionError) as exc_info:
+            self.inspector.inspect(_build_unrecoverable_invalid_xml_zip_payload())
+
+        diagnostics = exc_info.exception.diagnostics
+        fallback = exc_info.exception.fallback_inspection
+        self.assertEqual(diagnostics["selected_entry_name"], "20260417000682.xml")
+        self.assertFalse(fallback["fallback_parsing_succeeded"])
+        self.assertFalse(fallback["sanitization_applied"])
+        self.assertIsNotNone(fallback["fallback_error_message"])
 
 
 class FirstPassEvaluatorTests(TestCase):
@@ -340,6 +378,10 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["document_access"]["rcept_no"], "20260101000001")
         self.assertIn("zip_inspection", payload)
         self.assertIn("xml_inspection", payload)
+        self.assertIn("xml_parse_diagnostics", payload)
+        self.assertIn("xml_fallback_inspection", payload)
+        self.assertIsNone(payload["xml_parse_diagnostics"])
+        self.assertIsNone(payload["xml_fallback_inspection"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_failure_returns_structured_error(self, mock_fetch_doc):
@@ -369,7 +411,7 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["error"]["code"], "original_document_zip_inspection_failed")
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
-    def test_original_document_xml_inspection_failure_returns_structured_error(self, mock_fetch_doc):
+    def test_original_document_xml_fallback_success_returns_structured_response(self, mock_fetch_doc):
         mock_fetch_doc.return_value = {
             "rcept_no": "20260101000001",
             "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
@@ -379,10 +421,37 @@ class DartValidationViewTests(TestCase):
 
         response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
 
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertIn("xml_parse_diagnostics", payload)
+        self.assertIsNone(payload["xml_inspection"]["root_tag"])
+        self.assertIsNotNone(payload["xml_parse_diagnostics"]["parser_line"])
+        self.assertIsNotNone(payload["xml_parse_diagnostics"]["parser_column"])
+        self.assertIn("sanitized_excerpt", payload["xml_parse_diagnostics"])
+        self.assertIn("xml_fallback_inspection", payload)
+        self.assertTrue(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
+        self.assertEqual(payload["xml_fallback_inspection"]["root_tag"], "ROOT")
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    def test_original_document_xml_inspection_failure_returns_structured_error(self, mock_fetch_doc):
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "content": _build_unrecoverable_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
+
         self.assertEqual(response.status_code, 502)
         payload = response.json()
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "original_document_xml_inspection_failed")
+        self.assertIn("xml_parse_diagnostics", payload)
+        self.assertIsNone(payload["xml_inspection"])
+        self.assertIn("xml_fallback_inspection", payload)
+        self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_response_shape_is_preserved(self, mock_fetch):

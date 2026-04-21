@@ -79,6 +79,10 @@ python manage.py test apps.dart_analysis
 - `/api/v1/dart/document`는 `rcept_no` 기준으로 `document.xml` 접근을 시도합니다.
 - 현재 단계에서는 원문 본문 파싱 없이 `document_access`, `zip_inspection`, `xml_inspection`을 반환합니다.
 - `xml_inspection`은 XML 구조 메타데이터(root tag, namespace, 최상위 child 태그/개수)만 제공합니다.
+- strict XML 파싱 실패 시에는 `xml_parse_diagnostics`(line/column, XML 선언/인코딩 선언, 제한된 excerpt 등)를 반환합니다.
+- strict 실패 후에는 `xml_fallback_inspection`을 시도하며, 현재는 XML 1.0 비허용 제어문자(U+0000~U+001F 중 TAB/LF/CR 제외)만 최소 치환 후 재파싱합니다.
+- fallback 성공 시에도 `xml_inspection`은 strict 결과를 보존하기 위해 root/child를 채우지 않고, fallback 결과는 `xml_fallback_inspection`에 분리해 제공합니다.
+- fallback 실패 시에는 기존과 동일하게 `original_document_xml_inspection_failed` 오류를 반환하되 `xml_fallback_inspection` 시도 메타데이터를 함께 제공합니다.
 - 본문 텍스트 추출/섹션 의미 해석은 아직 구현하지 않았습니다.
 
 
