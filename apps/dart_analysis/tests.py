@@ -43,16 +43,6 @@ def _build_unrecoverable_invalid_xml_zip_payload() -> bytes:
     return buffer.getvalue()
 
 
-def _build_non_markup_invalid_xml_zip_payload() -> bytes:
-    import io
-    import zipfile
-
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("20260417000682.xml", "this is not markup and not xml")
-    return buffer.getvalue()
-
-
 class DisclosureNormalizerTests(TestCase):
     def setUp(self) -> None:
         self.normalizer = DisclosureNormalizer()
@@ -419,8 +409,6 @@ class DartValidationViewTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "original_document_fetch_failed")
-        self.assertIn("markup_fallback_inspection", payload)
-        self.assertIsNone(payload["markup_fallback_inspection"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_zip_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -437,8 +425,6 @@ class DartValidationViewTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "original_document_zip_inspection_failed")
-        self.assertIn("markup_fallback_inspection", payload)
-        self.assertIsNone(payload["markup_fallback_inspection"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_fallback_success_returns_structured_response(self, mock_fetch_doc):
@@ -462,28 +448,6 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_fallback_inspection", payload)
         self.assertTrue(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
         self.assertEqual(payload["xml_fallback_inspection"]["root_tag"], "ROOT")
-        self.assertIn("markup_fallback_inspection", payload)
-        self.assertIsNone(payload["markup_fallback_inspection"])
-
-    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
-    def test_original_document_markup_fallback_success_returns_structured_response(self, mock_fetch_doc):
-        mock_fetch_doc.return_value = {
-            "rcept_no": "20260101000001",
-            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
-            "content_type": "application/zip",
-            "content": _build_unrecoverable_invalid_xml_zip_payload(),
-        }
-
-        response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["ok"])
-        self.assertIn("xml_parse_diagnostics", payload)
-        self.assertIn("xml_fallback_inspection", payload)
-        self.assertIn("markup_fallback_inspection", payload)
-        self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
-        self.assertTrue(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -491,7 +455,7 @@ class DartValidationViewTests(TestCase):
             "rcept_no": "20260101000001",
             "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
             "content_type": "application/zip",
-            "content": _build_non_markup_invalid_xml_zip_payload(),
+            "content": _build_unrecoverable_invalid_xml_zip_payload(),
         }
 
         response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
@@ -503,9 +467,7 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_parse_diagnostics", payload)
         self.assertIsNone(payload["xml_inspection"])
         self.assertIn("xml_fallback_inspection", payload)
-        self.assertIn("markup_fallback_inspection", payload)
         self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
-        self.assertFalse(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_response_shape_is_preserved(self, mock_fetch):

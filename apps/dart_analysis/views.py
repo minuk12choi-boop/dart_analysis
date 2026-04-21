@@ -293,12 +293,6 @@ class DartOriginalDocumentView(View):
                         "message": str(exc),
                     },
                     "input": {"rcept_no": rcept_no},
-                    "document_access": None,
-                    "zip_inspection": None,
-                    "xml_inspection": None,
-                    "xml_parse_diagnostics": None,
-                    "xml_fallback_inspection": None,
-                    "markup_fallback_inspection": None,
                 },
                 status=502,
             )
@@ -323,11 +317,6 @@ class DartOriginalDocumentView(View):
                     },
                     "input": {"rcept_no": rcept_no},
                     "document_access": document_access,
-                    "zip_inspection": None,
-                    "xml_inspection": None,
-                    "xml_parse_diagnostics": None,
-                    "xml_fallback_inspection": None,
-                    "markup_fallback_inspection": None,
                 },
                 status=502,
             )
@@ -349,14 +338,9 @@ class DartOriginalDocumentView(View):
                     "xml_inspection": None,
                     "xml_parse_diagnostics": exc.diagnostics,
                     "xml_fallback_inspection": exc.fallback_inspection,
-                    "markup_fallback_inspection": getattr(exc, "markup_fallback_inspection", None),
                 },
                 status=502,
             )
-
-        xml_parse_diagnostics = xml_inspection.get("xml_parse_diagnostics")
-        xml_fallback_inspection = xml_inspection.get("xml_fallback_inspection")
-        markup_fallback_inspection = xml_inspection.get("markup_fallback_inspection")
 
         return JsonResponse(
             {
@@ -374,9 +358,8 @@ class DartOriginalDocumentView(View):
                     "top_level_child_count": xml_inspection["top_level_child_count"],
                     "message": xml_inspection["message"],
                 },
-                "xml_parse_diagnostics": xml_parse_diagnostics,
-                "xml_fallback_inspection": xml_fallback_inspection,
-                "markup_fallback_inspection": markup_fallback_inspection,
+                "xml_parse_diagnostics": xml_inspection["xml_parse_diagnostics"],
+                "xml_fallback_inspection": xml_inspection["xml_fallback_inspection"],
                 "notes": [
                     "현재 단계는 XML 구조 메타데이터(root tag/최상위 child)까지만 제공합니다.",
                     "본문 텍스트/섹션 의미 해석은 아직 구현하지 않았습니다.",
