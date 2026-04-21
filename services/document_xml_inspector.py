@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from io import BytesIO
 import re
 from typing import Any
@@ -9,53 +8,18 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 
-class _TolerantMarkupCollector(HTMLParser):
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.opening_tags_in_order: list[str] = []
-        self.unique_tag_names: list[str] = []
-        self.shallow_tag_sequence: list[str] = []
-        self._seen: set[str] = set()
-        self._stack: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.opening_tags_in_order.append(tag)
-        if tag not in self._seen:
-            self._seen.add(tag)
-            self.unique_tag_names.append(tag)
-
-        self._stack.append(tag)
-        if len(self._stack) <= 2:
-            self.shallow_tag_sequence.append(tag)
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.opening_tags_in_order.append(tag)
-        if tag not in self._seen:
-            self._seen.add(tag)
-            self.unique_tag_names.append(tag)
-
-        if len(self._stack) <= 1:
-            self.shallow_tag_sequence.append(tag)
-
-    def handle_endtag(self, tag: str) -> None:
-        if self._stack:
-            self._stack.pop()
-
-
 class DocumentXMLInspectionError(RuntimeError):
-    """Raised when XML entry exists but XML/fallback/markup parsing all fail."""
+    """Raised when XML entry exists but XML parsing and fallback parsing both fail."""
 
     def __init__(
         self,
         message: str,
         diagnostics: dict[str, Any],
         fallback_inspection: dict[str, Any] | None = None,
-        markup_fallback_inspection: dict[str, Any] | None = None,
     ):
         super().__init__(message)
         self.diagnostics = diagnostics
         self.fallback_inspection = fallback_inspection
-        self.markup_fallback_inspection = markup_fallback_inspection
 
 
 @dataclass(slots=True)
@@ -73,7 +37,6 @@ class DocumentXMLInspector:
                 "top_level_child_count": 0,
                 "xml_parse_diagnostics": None,
                 "xml_fallback_inspection": None,
-                "markup_fallback_inspection": None,
                 "message": "ZIP 내 XML 엔트리를 찾지 못했습니다.",
             }
 
@@ -102,36 +65,13 @@ class DocumentXMLInspector:
                     "top_level_child_count": 0,
                     "xml_parse_diagnostics": diagnostics,
                     "xml_fallback_inspection": fallback_inspection,
-                    "markup_fallback_inspection": None,
-                    "message": "엄격 XML 파싱은 실패했지만 보수적 XML fallback 검사에는 성공했습니다.",
-                }
-
-            markup_fallback_inspection = self._attempt_markup_fallback_inspection(
-                selected_entry_name=selected_entry,
-                xml_bytes=xml_bytes,
-                diagnostics=diagnostics,
-            )
-
-            if markup_fallback_inspection["markup_fallback_succeeded"]:
-                return {
-                    "parsing_succeeded": False,
-                    "selected_entry_is_xml": True,
-                    "selected_entry_name": selected_entry,
-                    "root_tag": None,
-                    "namespace_uri": None,
-                    "top_level_child_tags": [],
-                    "top_level_child_count": 0,
-                    "xml_parse_diagnostics": diagnostics,
-                    "xml_fallback_inspection": fallback_inspection,
-                    "markup_fallback_inspection": markup_fallback_inspection,
-                    "message": "엄격 XML 파싱과 XML fallback은 실패했지만 markup 구조 fallback 검사에는 성공했습니다.",
+                    "message": "엄격 XML 파싱은 실패했지만 보수적 fallback 검사에는 성공했습니다.",
                 }
 
             raise DocumentXMLInspectionError(
                 f"XML 파싱 실패: {exc}",
                 diagnostics=diagnostics,
                 fallback_inspection=fallback_inspection,
-                markup_fallback_inspection=markup_fallback_inspection,
             ) from exc
 
         namespace_uri, root_tag = self._split_namespace(root.tag)
@@ -147,7 +87,6 @@ class DocumentXMLInspector:
             "top_level_child_count": len(top_level_child_tags),
             "xml_parse_diagnostics": None,
             "xml_fallback_inspection": None,
-            "markup_fallback_inspection": None,
             "message": "XML 구조 메타데이터 추출에 성공했습니다.",
         }
 
@@ -274,69 +213,6 @@ class DocumentXMLInspector:
         result["top_level_child_tags"] = top_level_child_tags
         result["top_level_child_count"] = len(top_level_child_tags)
         return result
-
-    def _attempt_markup_fallback_inspection(
-        self,
-        *,
-        selected_entry_name: str,
-        xml_bytes: bytes,
-        diagnostics: dict[str, Any],
-    ) -> dict[str, Any]:
-        line_no = diagnostics.get("parser_line")
-        col_no = diagnostics.get("parser_column")
-        decoded_text = xml_bytes.decode("utf-8", errors="replace")
-        raw_excerpt = self._safe_excerpt(decoded_text, line_no=line_no, col_no=col_no)
-
-        max_tags = 30
-        collector = _TolerantMarkupCollector()
-        try:
-            collector.feed(decoded_text)
-            collector.close()
-        except Exception as exc:
-            return {
-                "selected_entry_name": selected_entry_name,
-                "markup_fallback_attempted": True,
-                "markup_fallback_succeeded": False,
-                "parser_mode": "html.parser.HTMLParser",
-                "document_appears_markup_like": False,
-                "first_unique_tag_names": [],
-                "first_opening_tags": [],
-                "shallow_tag_sequence": [],
-                "raw_excerpt_near_error": raw_excerpt,
-                "markup_fallback_error_message": str(exc),
-            }
-
-        first_opening_tags = collector.opening_tags_in_order[:max_tags]
-        first_unique_tag_names = collector.unique_tag_names[:max_tags]
-        shallow_tag_sequence = collector.shallow_tag_sequence[:max_tags]
-        appears_markup_like = len(first_opening_tags) > 0
-
-        if not appears_markup_like:
-            return {
-                "selected_entry_name": selected_entry_name,
-                "markup_fallback_attempted": True,
-                "markup_fallback_succeeded": False,
-                "parser_mode": "html.parser.HTMLParser",
-                "document_appears_markup_like": False,
-                "first_unique_tag_names": [],
-                "first_opening_tags": [],
-                "shallow_tag_sequence": [],
-                "raw_excerpt_near_error": raw_excerpt,
-                "markup_fallback_error_message": "문서가 markup 형태로 보이지 않아 구조 fallback을 확정할 수 없습니다.",
-            }
-
-        return {
-            "selected_entry_name": selected_entry_name,
-            "markup_fallback_attempted": True,
-            "markup_fallback_succeeded": True,
-            "parser_mode": "html.parser.HTMLParser",
-            "document_appears_markup_like": True,
-            "first_unique_tag_names": first_unique_tag_names,
-            "first_opening_tags": first_opening_tags,
-            "shallow_tag_sequence": shallow_tag_sequence,
-            "raw_excerpt_near_error": raw_excerpt,
-            "markup_fallback_error_message": None,
-        }
 
     def _safe_excerpt(self, text: str, *, line_no: int | None, col_no: int | None) -> str:
         if line_no is None or col_no is None:
