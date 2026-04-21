@@ -115,6 +115,7 @@ class DocumentXMLInspectorTests(TestCase):
         self.assertEqual(result["top_level_child_count"], 2)
         self.assertIsNone(result["xml_parse_diagnostics"])
         self.assertIsNone(result["xml_fallback_inspection"])
+        self.assertIsNone(result["markup_fallback_inspection"])
 
     def test_xml_parse_failure_with_fallback_sanitize_success_path(self):
         result = self.inspector.inspect(_build_invalid_xml_zip_payload())
@@ -134,17 +135,30 @@ class DocumentXMLInspectorTests(TestCase):
         self.assertEqual(fallback["root_tag"], "ROOT")
         self.assertEqual(fallback["top_level_child_count"], 2)
         self.assertGreaterEqual(len(fallback["sanitization_rules_applied"]), 1)
+        self.assertIsNone(result["markup_fallback_inspection"])
 
-    def test_xml_parse_failure_with_fallback_failure_path(self):
+    def test_xml_parse_failure_with_markup_fallback_success_path(self):
+        result = self.inspector.inspect(_build_unrecoverable_invalid_xml_zip_payload())
+        self.assertFalse(result["parsing_succeeded"])
+        self.assertFalse(result["xml_fallback_inspection"]["fallback_parsing_succeeded"])
+        self.assertFalse(result["xml_fallback_inspection"]["sanitization_applied"])
+        self.assertTrue(result["markup_fallback_inspection"]["markup_fallback_attempted"])
+        self.assertTrue(result["markup_fallback_inspection"]["markup_fallback_succeeded"])
+        self.assertTrue(result["markup_fallback_inspection"]["document_appears_markup_like"])
+        self.assertGreater(len(result["markup_fallback_inspection"]["first_unique_tag_names"]), 0)
+
+    def test_xml_parse_failure_with_markup_fallback_failure_path(self):
         with self.assertRaises(DocumentXMLInspectionError) as exc_info:
-            self.inspector.inspect(_build_unrecoverable_invalid_xml_zip_payload())
+            self.inspector.inspect(_build_non_markup_invalid_xml_zip_payload())
 
         diagnostics = exc_info.exception.diagnostics
         fallback = exc_info.exception.fallback_inspection
+        markup_fallback = exc_info.exception.markup_fallback_inspection
         self.assertEqual(diagnostics["selected_entry_name"], "20260417000682.xml")
         self.assertFalse(fallback["fallback_parsing_succeeded"])
-        self.assertFalse(fallback["sanitization_applied"])
-        self.assertIsNotNone(fallback["fallback_error_message"])
+        self.assertFalse(markup_fallback["markup_fallback_succeeded"])
+        self.assertFalse(markup_fallback["document_appears_markup_like"])
+        self.assertIsNotNone(markup_fallback["markup_fallback_error_message"])
 
 
 class FirstPassEvaluatorTests(TestCase):
@@ -380,8 +394,10 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_inspection", payload)
         self.assertIn("xml_parse_diagnostics", payload)
         self.assertIn("xml_fallback_inspection", payload)
+        self.assertIn("markup_fallback_inspection", payload)
         self.assertIsNone(payload["xml_parse_diagnostics"])
         self.assertIsNone(payload["xml_fallback_inspection"])
+        self.assertIsNone(payload["markup_fallback_inspection"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_failure_returns_structured_error(self, mock_fetch_doc):
