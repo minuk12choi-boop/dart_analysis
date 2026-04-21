@@ -75,6 +75,8 @@ python manage.py test apps.dart_analysis
 - 본문 파싱 전 단계이므로 최종 투자 판단으로 사용하면 안 됩니다.
 - `analysis.document_structure_signals`는 `document_structure_enrichment`를 재집계한 구조 신호 요약입니다(heading 후보 가용 건수, section/table/cover/body/summary 유사 구조 건수 등).
 - `analysis.document_structure_signals`는 구조 수준 집계만 제공하며, heading 텍스트 의미 해석/비즈니스 결론은 포함하지 않습니다.
+- `analysis.document_structure_hints`는 `document_structure_signals`를 기반으로 만든 정보성 플래그 집합입니다(`structured_document_detected` 등).
+- `analysis.document_structure_hints`는 구조 존재 여부를 표시할 뿐, 의미 해석/사업 결론/투자 판단을 제공하지 않습니다.
 
 ## validate 응답의 문서 구조 enrichment(선택적)
 - `/api/v1/dart/validate`의 `disclosures.data.document_structure_enrichment`는 공시 목록 중 제한된 건수(현재 기본 1건)에 대해 문서 구조 신호를 추가로 제공합니다.

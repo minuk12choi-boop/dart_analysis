@@ -161,6 +161,11 @@ class DartValidationView(View):
                 "available": False,
                 "reason": "document_structure_enrichment가 생성되지 않았습니다.",
             },
+            "document_structure_hints": {
+                "available": False,
+                "hint_flags": [],
+                "informational_notes": ["document_structure_signals가 없어 구조 힌트를 생성하지 않았습니다."],
+            },
             "notes": ["corp_code 확인 전에는 1차 규칙 평가를 수행하지 않습니다."],
             "evaluation_summary": "평가 대상을 확인한 뒤 1차 규칙 평가가 수행됩니다.",
         }
@@ -204,6 +209,13 @@ class DartValidationView(View):
                 analysis["document_structure_signals"] = _build_document_structure_signals(
                     disclosures["data"]["document_structure_enrichment"]
                 )
+                analysis["document_structure_hints"] = _build_document_structure_hints(
+                    analysis["document_structure_signals"]
+                )
+                analysis["notes"] = [
+                    *analysis.get("notes", []),
+                    "document_structure_hints는 구조 신호 기반의 정보성 힌트이며 의미 해석/투자 판단을 포함하지 않습니다.",
+                ]
             except DartAPIRequestError as exc:
                 return JsonResponse(
                     {
@@ -404,6 +416,51 @@ def _build_document_structure_signals(enrichment: dict[str, Any] | None) -> dict
         "heading_text_preview": heading_text_preview,
         "notes": [
             "문서 구조 신호 집계는 의미 해석 없이 구조 수준으로만 제공됩니다.",
+        ],
+    }
+
+
+def _build_document_structure_hints(document_structure_signals: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(document_structure_signals, dict) or not document_structure_signals.get("available"):
+        return {
+            "available": False,
+            "hint_flags": [],
+            "informational_notes": ["document_structure_signals가 없어 구조 힌트를 생성하지 않았습니다."],
+        }
+
+    hint_flags: list[str] = []
+    if document_structure_signals.get("document_structure_available"):
+        hint_flags.append("structured_document_detected")
+    if document_structure_signals.get("document_heading_candidates_available"):
+        hint_flags.append("heading_candidates_present")
+    if document_structure_signals.get("section_like_structure_present"):
+        hint_flags.append("section_like_structure_present")
+    if document_structure_signals.get("table_heavy_document_present"):
+        hint_flags.append("table_heavy_structure_present")
+    if (
+        document_structure_signals.get("cover_like_structure_count", 0) > 0
+        and document_structure_signals.get("body_like_structure_count", 0) > 0
+        and document_structure_signals.get("summary_like_structure_count", 0) > 0
+    ):
+        hint_flags.append("cover_body_summary_like_structure_present")
+
+    return {
+        "available": True,
+        "derived_from": "analysis.document_structure_signals",
+        "hint_flags": hint_flags,
+        "attempted_item_count": document_structure_signals.get("attempted_item_count", 0),
+        "enriched_item_count": document_structure_signals.get("enriched_item_count", 0),
+        "heading_candidates_available_count": document_structure_signals.get("heading_candidates_available_count", 0),
+        "section_like_structure_count": document_structure_signals.get("section_like_structure_count", 0),
+        "table_like_structure_count": document_structure_signals.get("table_like_structure_count", 0),
+        "cover_like_structure_count": document_structure_signals.get("cover_like_structure_count", 0),
+        "body_like_structure_count": document_structure_signals.get("body_like_structure_count", 0),
+        "summary_like_structure_count": document_structure_signals.get("summary_like_structure_count", 0),
+        "heading_candidate_count_preview": document_structure_signals.get("heading_candidate_count_preview", [])[:3],
+        "heading_text_preview_available": len(document_structure_signals.get("heading_text_preview", [])) > 0,
+        "informational_notes": [
+            "구조 힌트는 heading/section/table/cover/body/summary 존재 여부를 정보성으로만 표시합니다.",
+            "구조 힌트는 사업 의미나 투자 판단을 직접 나타내지 않습니다.",
         ],
     }
 
