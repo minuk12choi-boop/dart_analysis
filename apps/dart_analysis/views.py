@@ -11,6 +11,7 @@ from core.env import MissingDartApiKeyError
 from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
 from services.first_pass_evaluator import FirstPassEvaluator
+from services.document_heading_candidates_builder import DocumentHeadingCandidatesBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.document_xml_inspector import DocumentXMLInspectionError, DocumentXMLInspector
@@ -301,6 +302,7 @@ class DartOriginalDocumentView(View):
                     "xml_fallback_inspection": None,
                     "markup_fallback_inspection": None,
                     "document_outline": None,
+                    "document_heading_candidates": None,
                 },
                 status=502,
             )
@@ -331,6 +333,7 @@ class DartOriginalDocumentView(View):
                     "xml_fallback_inspection": None,
                     "markup_fallback_inspection": None,
                     "document_outline": None,
+                    "document_heading_candidates": None,
                 },
                 status=502,
             )
@@ -354,6 +357,9 @@ class DartOriginalDocumentView(View):
                     "xml_fallback_inspection": exc.fallback_inspection,
                     "markup_fallback_inspection": getattr(exc, "markup_fallback_inspection", None),
                     "document_outline": DocumentOutlineBuilder().build(getattr(exc, "markup_fallback_inspection", None)),
+                    "document_heading_candidates": DocumentHeadingCandidatesBuilder().build(
+                        getattr(exc, "markup_fallback_inspection", None)
+                    ),
                 },
                 status=502,
             )
@@ -362,6 +368,7 @@ class DartOriginalDocumentView(View):
         xml_fallback_inspection = xml_inspection.get("xml_fallback_inspection")
         markup_fallback_inspection = xml_inspection.get("markup_fallback_inspection")
         document_outline = DocumentOutlineBuilder().build(markup_fallback_inspection)
+        document_heading_candidates = DocumentHeadingCandidatesBuilder().build(markup_fallback_inspection)
 
         return JsonResponse(
             {
@@ -383,6 +390,7 @@ class DartOriginalDocumentView(View):
                 "xml_fallback_inspection": xml_fallback_inspection,
                 "markup_fallback_inspection": markup_fallback_inspection,
                 "document_outline": document_outline,
+                "document_heading_candidates": document_heading_candidates,
                 "notes": [
                     "현재 단계는 XML 구조 메타데이터(root tag/최상위 child)까지만 제공합니다.",
                     "본문 텍스트/섹션 의미 해석은 아직 구현하지 않았습니다.",

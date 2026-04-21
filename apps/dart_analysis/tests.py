@@ -9,6 +9,7 @@ from clients.dart_client import DartAPIRequestError, DartClient
 from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
 from services.document_xml_inspector import DocumentXMLInspectionError, DocumentXMLInspector
+from services.document_heading_candidates_builder import DocumentHeadingCandidatesBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.first_pass_evaluator import FirstPassEvaluator
@@ -51,6 +52,25 @@ def _build_non_markup_invalid_xml_zip_payload() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("20260417000682.xml", "this is not markup and not xml")
+    return buffer.getvalue()
+
+
+def _build_markup_with_heading_candidates_invalid_xml_zip_payload() -> bytes:
+    import io
+    import zipfile
+
+    xml_like = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        "<document>"
+        "<document-name>테스트 문서</document-name>"
+        "<body><section-1><title>요약 정보</title><p>본문</p></section-1>"
+        "<section-2><title>재무 상태</title></section-2>"
+        "</body>"
+    )  # 의도적으로 closing tag 누락
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("20260417000682.xml", xml_like)
     return buffer.getvalue()
 
 
@@ -206,6 +226,44 @@ class DocumentOutlineBuilderTests(TestCase):
         self.assertEqual(outline["table_like_tag_total_count"], 3)
         self.assertEqual(outline["paragraph_like_tag_total_count"], 5)
         self.assertNotIn("semantic_sections", outline)
+
+
+class DocumentHeadingCandidatesBuilderTests(TestCase):
+    def setUp(self) -> None:
+        self.builder = DocumentHeadingCandidatesBuilder()
+
+    def test_build_from_markup_heading_candidates_success(self):
+        markup_fallback = {
+            "markup_fallback_attempted": True,
+            "markup_fallback_succeeded": True,
+            "heading_like_tag_names_used": ["title", "document-name"],
+            "heading_candidates": [
+                {"source_tag": "title", "text": "요약 정보", "text_length": 5},
+                {"source_tag": "title", "text": "요약 정보", "text_length": 5},
+                {"source_tag": "document-name", "text": "테스트 문서", "text_length": 6},
+            ],
+        }
+
+        result = self.builder.build(markup_fallback)
+        self.assertTrue(result["extraction_attempted"])
+        self.assertTrue(result["extraction_succeeded"])
+        self.assertEqual(result["heading_candidate_count"], 3)
+        self.assertEqual(result["deduplicated_heading_candidate_count"], 2)
+        self.assertEqual(len(result["heading_candidates"]), 2)
+        self.assertNotIn("semantic_labels", result)
+
+    def test_build_from_markup_heading_candidates_empty_path(self):
+        markup_fallback = {
+            "markup_fallback_attempted": True,
+            "markup_fallback_succeeded": True,
+            "heading_like_tag_names_used": [],
+            "heading_candidates": [],
+        }
+        result = self.builder.build(markup_fallback)
+        self.assertTrue(result["extraction_attempted"])
+        self.assertTrue(result["extraction_succeeded"])
+        self.assertEqual(result["heading_candidate_count"], 0)
+        self.assertEqual(result["deduplicated_heading_candidate_count"], 0)
 
 
 class FirstPassEvaluatorTests(TestCase):
@@ -443,10 +501,12 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_fallback_inspection", payload)
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
+        self.assertIn("document_heading_candidates", payload)
         self.assertIsNone(payload["xml_parse_diagnostics"])
         self.assertIsNone(payload["xml_fallback_inspection"])
         self.assertIsNone(payload["markup_fallback_inspection"])
         self.assertIsNone(payload["document_outline"])
+        self.assertIsNone(payload["document_heading_candidates"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_failure_returns_structured_error(self, mock_fetch_doc):
@@ -460,8 +520,10 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["error"]["code"], "original_document_fetch_failed")
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
+        self.assertIn("document_heading_candidates", payload)
         self.assertIsNone(payload["markup_fallback_inspection"])
         self.assertIsNone(payload["document_outline"])
+        self.assertIsNone(payload["document_heading_candidates"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_zip_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -480,8 +542,10 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["error"]["code"], "original_document_zip_inspection_failed")
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
+        self.assertIn("document_heading_candidates", payload)
         self.assertIsNone(payload["markup_fallback_inspection"])
         self.assertIsNone(payload["document_outline"])
+        self.assertIsNone(payload["document_heading_candidates"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_fallback_success_returns_structured_response(self, mock_fetch_doc):
@@ -507,8 +571,10 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["xml_fallback_inspection"]["root_tag"], "ROOT")
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
+        self.assertIn("document_heading_candidates", payload)
         self.assertIsNone(payload["markup_fallback_inspection"])
         self.assertIsNone(payload["document_outline"])
+        self.assertIsNone(payload["document_heading_candidates"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_markup_fallback_success_returns_structured_response(self, mock_fetch_doc):
@@ -528,11 +594,35 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_fallback_inspection", payload)
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
+        self.assertIn("document_heading_candidates", payload)
         self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
         self.assertTrue(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
         self.assertTrue(payload["document_outline"]["outline_available"])
         self.assertIn("section_tag_names", payload["document_outline"])
         self.assertNotIn("semantic_sections", payload["document_outline"])
+        self.assertTrue(payload["document_heading_candidates"]["extraction_attempted"])
+        self.assertTrue(payload["document_heading_candidates"]["extraction_succeeded"])
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    def test_original_document_heading_candidates_extraction_returns_raw_candidates(self, mock_fetch_doc):
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/api/v1/dart/document", {"rcept_no": "20260101000001"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("document_heading_candidates", payload)
+        heading_block = payload["document_heading_candidates"]
+        self.assertTrue(heading_block["extraction_attempted"])
+        self.assertTrue(heading_block["extraction_succeeded"])
+        self.assertGreaterEqual(heading_block["heading_candidate_count"], 2)
+        self.assertGreaterEqual(heading_block["deduplicated_heading_candidate_count"], 2)
+        self.assertIn("title", heading_block["heading_like_tag_names_used"])
+        self.assertNotIn("semantic_labels", heading_block)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -558,6 +648,7 @@ class DartValidationViewTests(TestCase):
                 "xml_fallback_inspection",
                 "markup_fallback_inspection",
                 "document_outline",
+                "document_heading_candidates",
             }.issubset(set(payload.keys()))
         )
         self.assertIn("xml_parse_diagnostics", payload)
@@ -565,9 +656,11 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_fallback_inspection", payload)
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
+        self.assertIn("document_heading_candidates", payload)
         self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
         self.assertFalse(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
         self.assertFalse(payload["document_outline"]["outline_available"])
+        self.assertFalse(payload["document_heading_candidates"]["extraction_succeeded"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_response_shape_is_preserved(self, mock_fetch):

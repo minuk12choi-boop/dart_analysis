@@ -86,6 +86,8 @@ python manage.py test apps.dart_analysis
 - markup fallback까지 실패하면 기존과 동일하게 `original_document_xml_inspection_failed` 오류를 반환하되 `xml_fallback_inspection`, `markup_fallback_inspection` 메타데이터를 함께 제공합니다.
 - `document_outline`는 `markup_fallback_inspection`의 태그 구조 정보만으로 생성한 구조 요약 블록입니다(`has_body`, `has_cover`, `section_tag_names`, `tag_counts` 등).
 - `document_outline`는 구조 정보만 다루며, 본문 의미 해석/비즈니스 라벨/투자 판단은 포함하지 않습니다.
+- `document_heading_candidates`는 markup 기반으로 수집된 heading-like 태그(`title`, `cover-title`, `document-name` 등)에서 raw 텍스트 후보만 보수적으로 추출한 블록입니다.
+- `document_heading_candidates`는 공백 정규화/빈 문자열 제거만 수행하며, 요약/의미 해석/비즈니스 라벨링은 수행하지 않습니다.
 - 본문 텍스트 추출/섹션 의미 해석은 아직 구현하지 않았습니다.
 
 

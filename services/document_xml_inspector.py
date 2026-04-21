@@ -16,8 +16,12 @@ class _TolerantMarkupCollector(HTMLParser):
         self.unique_tag_names: list[str] = []
         self.shallow_tag_sequence: list[str] = []
         self.tag_counts: dict[str, int] = {}
+        self.heading_candidates: list[dict[str, Any]] = []
+        self.heading_like_tag_names_used: list[str] = []
         self._seen: set[str] = set()
         self._stack: list[str] = []
+        self._heading_capture_stack: list[dict[str, Any]] = []
+        self._heading_like_tags = {"title", "cover-title", "document-name"}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.opening_tags_in_order.append(tag)
@@ -29,6 +33,10 @@ class _TolerantMarkupCollector(HTMLParser):
         self._stack.append(tag)
         if len(self._stack) <= 2:
             self.shallow_tag_sequence.append(tag)
+        if tag in self._heading_like_tags:
+            self._heading_capture_stack.append({"tag": tag, "chunks": []})
+            if tag not in self.heading_like_tag_names_used:
+                self.heading_like_tag_names_used.append(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.opening_tags_in_order.append(tag)
@@ -41,8 +49,26 @@ class _TolerantMarkupCollector(HTMLParser):
             self.shallow_tag_sequence.append(tag)
 
     def handle_endtag(self, tag: str) -> None:
+        if self._heading_capture_stack and self._heading_capture_stack[-1]["tag"] == tag:
+            capture = self._heading_capture_stack.pop()
+            text = self._normalize_text("".join(capture["chunks"]))
+            if text:
+                self.heading_candidates.append(
+                    {
+                        "source_tag": capture["tag"],
+                        "text": text,
+                        "text_length": len(text),
+                    }
+                )
         if self._stack:
             self._stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        if self._heading_capture_stack:
+            self._heading_capture_stack[-1]["chunks"].append(data)
+
+    def _normalize_text(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text).strip()
 
 
 class DocumentXMLInspectionError(RuntimeError):
@@ -306,6 +332,8 @@ class DocumentXMLInspector:
                 "first_opening_tags": [],
                 "shallow_tag_sequence": [],
                 "tag_counts": {},
+                "heading_like_tag_names_used": [],
+                "heading_candidates": [],
                 "raw_excerpt_near_error": raw_excerpt,
                 "markup_fallback_error_message": str(exc),
             }
@@ -326,6 +354,8 @@ class DocumentXMLInspector:
                 "first_opening_tags": [],
                 "shallow_tag_sequence": [],
                 "tag_counts": {},
+                "heading_like_tag_names_used": [],
+                "heading_candidates": [],
                 "raw_excerpt_near_error": raw_excerpt,
                 "markup_fallback_error_message": "문서가 markup 형태로 보이지 않아 구조 fallback을 확정할 수 없습니다.",
             }
@@ -340,6 +370,8 @@ class DocumentXMLInspector:
             "first_opening_tags": first_opening_tags,
             "shallow_tag_sequence": shallow_tag_sequence,
             "tag_counts": collector.tag_counts,
+            "heading_like_tag_names_used": collector.heading_like_tag_names_used,
+            "heading_candidates": collector.heading_candidates[:30],
             "raw_excerpt_near_error": raw_excerpt,
             "markup_fallback_error_message": None,
         }
