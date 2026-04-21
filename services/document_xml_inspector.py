@@ -15,11 +15,13 @@ class _TolerantMarkupCollector(HTMLParser):
         self.opening_tags_in_order: list[str] = []
         self.unique_tag_names: list[str] = []
         self.shallow_tag_sequence: list[str] = []
+        self.tag_counts: dict[str, int] = {}
         self._seen: set[str] = set()
         self._stack: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.opening_tags_in_order.append(tag)
+        self.tag_counts[tag] = self.tag_counts.get(tag, 0) + 1
         if tag not in self._seen:
             self._seen.add(tag)
             self.unique_tag_names.append(tag)
@@ -30,6 +32,7 @@ class _TolerantMarkupCollector(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.opening_tags_in_order.append(tag)
+        self.tag_counts[tag] = self.tag_counts.get(tag, 0) + 1
         if tag not in self._seen:
             self._seen.add(tag)
             self.unique_tag_names.append(tag)
@@ -302,6 +305,7 @@ class DocumentXMLInspector:
                 "first_unique_tag_names": [],
                 "first_opening_tags": [],
                 "shallow_tag_sequence": [],
+                "tag_counts": {},
                 "raw_excerpt_near_error": raw_excerpt,
                 "markup_fallback_error_message": str(exc),
             }
@@ -321,6 +325,7 @@ class DocumentXMLInspector:
                 "first_unique_tag_names": [],
                 "first_opening_tags": [],
                 "shallow_tag_sequence": [],
+                "tag_counts": {},
                 "raw_excerpt_near_error": raw_excerpt,
                 "markup_fallback_error_message": "문서가 markup 형태로 보이지 않아 구조 fallback을 확정할 수 없습니다.",
             }
@@ -334,6 +339,7 @@ class DocumentXMLInspector:
             "first_unique_tag_names": first_unique_tag_names,
             "first_opening_tags": first_opening_tags,
             "shallow_tag_sequence": shallow_tag_sequence,
+            "tag_counts": collector.tag_counts,
             "raw_excerpt_near_error": raw_excerpt,
             "markup_fallback_error_message": None,
         }

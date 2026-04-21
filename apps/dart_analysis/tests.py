@@ -9,6 +9,7 @@ from clients.dart_client import DartAPIRequestError, DartClient
 from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
 from services.document_xml_inspector import DocumentXMLInspectionError, DocumentXMLInspector
+from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.first_pass_evaluator import FirstPassEvaluator
 
@@ -169,6 +170,42 @@ class DocumentXMLInspectorTests(TestCase):
         self.assertFalse(markup_fallback["markup_fallback_succeeded"])
         self.assertFalse(markup_fallback["document_appears_markup_like"])
         self.assertIsNotNone(markup_fallback["markup_fallback_error_message"])
+
+
+class DocumentOutlineBuilderTests(TestCase):
+    def setUp(self) -> None:
+        self.builder = DocumentOutlineBuilder()
+
+    def test_build_from_markup_fallback_success(self):
+        markup_fallback = {
+            "markup_fallback_attempted": True,
+            "markup_fallback_succeeded": True,
+            "first_unique_tag_names": ["document", "summary", "body", "section-1", "table", "p", "title", "cover"],
+            "first_opening_tags": ["document", "summary", "body", "section-1", "title", "p"],
+            "shallow_tag_sequence": ["document", "summary", "body"],
+            "tag_counts": {
+                "document": 1,
+                "summary": 1,
+                "body": 1,
+                "cover": 1,
+                "section-1": 2,
+                "table": 3,
+                "p": 5,
+                "title": 1,
+            },
+        }
+
+        outline = self.builder.build(markup_fallback)
+        self.assertTrue(outline["outline_available"])
+        self.assertTrue(outline["has_body"])
+        self.assertTrue(outline["has_cover"])
+        self.assertTrue(outline["has_summary"])
+        self.assertTrue(outline["has_title_tags"])
+        self.assertEqual(outline["section_tag_names"], ["section-1"])
+        self.assertEqual(outline["section_tag_total_count"], 2)
+        self.assertEqual(outline["table_like_tag_total_count"], 3)
+        self.assertEqual(outline["paragraph_like_tag_total_count"], 5)
+        self.assertNotIn("semantic_sections", outline)
 
 
 class FirstPassEvaluatorTests(TestCase):
@@ -405,9 +442,11 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_parse_diagnostics", payload)
         self.assertIn("xml_fallback_inspection", payload)
         self.assertIn("markup_fallback_inspection", payload)
+        self.assertIn("document_outline", payload)
         self.assertIsNone(payload["xml_parse_diagnostics"])
         self.assertIsNone(payload["xml_fallback_inspection"])
         self.assertIsNone(payload["markup_fallback_inspection"])
+        self.assertIsNone(payload["document_outline"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_failure_returns_structured_error(self, mock_fetch_doc):
@@ -420,7 +459,9 @@ class DartValidationViewTests(TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "original_document_fetch_failed")
         self.assertIn("markup_fallback_inspection", payload)
+        self.assertIn("document_outline", payload)
         self.assertIsNone(payload["markup_fallback_inspection"])
+        self.assertIsNone(payload["document_outline"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_zip_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -438,7 +479,9 @@ class DartValidationViewTests(TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "original_document_zip_inspection_failed")
         self.assertIn("markup_fallback_inspection", payload)
+        self.assertIn("document_outline", payload)
         self.assertIsNone(payload["markup_fallback_inspection"])
+        self.assertIsNone(payload["document_outline"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_fallback_success_returns_structured_response(self, mock_fetch_doc):
@@ -463,7 +506,9 @@ class DartValidationViewTests(TestCase):
         self.assertTrue(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
         self.assertEqual(payload["xml_fallback_inspection"]["root_tag"], "ROOT")
         self.assertIn("markup_fallback_inspection", payload)
+        self.assertIn("document_outline", payload)
         self.assertIsNone(payload["markup_fallback_inspection"])
+        self.assertIsNone(payload["document_outline"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_markup_fallback_success_returns_structured_response(self, mock_fetch_doc):
@@ -482,8 +527,12 @@ class DartValidationViewTests(TestCase):
         self.assertIn("xml_parse_diagnostics", payload)
         self.assertIn("xml_fallback_inspection", payload)
         self.assertIn("markup_fallback_inspection", payload)
+        self.assertIn("document_outline", payload)
         self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
         self.assertTrue(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
+        self.assertTrue(payload["document_outline"]["outline_available"])
+        self.assertIn("section_tag_names", payload["document_outline"])
+        self.assertNotIn("semantic_sections", payload["document_outline"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -508,14 +557,17 @@ class DartValidationViewTests(TestCase):
                 "xml_parse_diagnostics",
                 "xml_fallback_inspection",
                 "markup_fallback_inspection",
+                "document_outline",
             }.issubset(set(payload.keys()))
         )
         self.assertIn("xml_parse_diagnostics", payload)
         self.assertIsNone(payload["xml_inspection"])
         self.assertIn("xml_fallback_inspection", payload)
         self.assertIn("markup_fallback_inspection", payload)
+        self.assertIn("document_outline", payload)
         self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
         self.assertFalse(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
+        self.assertFalse(payload["document_outline"]["outline_available"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_response_shape_is_preserved(self, mock_fetch):

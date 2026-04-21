@@ -84,6 +84,8 @@ python manage.py test apps.dart_analysis
 - fallback 성공 시에도 `xml_inspection`은 strict 결과를 보존하기 위해 root/child를 채우지 않고, fallback 결과는 `xml_fallback_inspection`에 분리해 제공합니다.
 - strict/XML fallback이 모두 실패하면 `markup_fallback_inspection`을 추가 시도하여, 태그 스트림 기반의 구조 정보(앞부분 태그 목록/얕은 수준 태그 순서/markup 형태 여부)만 보수적으로 제공합니다.
 - markup fallback까지 실패하면 기존과 동일하게 `original_document_xml_inspection_failed` 오류를 반환하되 `xml_fallback_inspection`, `markup_fallback_inspection` 메타데이터를 함께 제공합니다.
+- `document_outline`는 `markup_fallback_inspection`의 태그 구조 정보만으로 생성한 구조 요약 블록입니다(`has_body`, `has_cover`, `section_tag_names`, `tag_counts` 등).
+- `document_outline`는 구조 정보만 다루며, 본문 의미 해석/비즈니스 라벨/투자 판단은 포함하지 않습니다.
 - 본문 텍스트 추출/섹션 의미 해석은 아직 구현하지 않았습니다.
 
 
