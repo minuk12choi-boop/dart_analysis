@@ -157,6 +157,10 @@ class DartValidationView(View):
             "risk_flags": [],
             "positive_flags": [],
             "neutral_flags": [],
+            "document_structure_signals": {
+                "available": False,
+                "reason": "document_structure_enrichment가 생성되지 않았습니다.",
+            },
             "notes": ["corp_code 확인 전에는 1차 규칙 평가를 수행하지 않습니다."],
             "evaluation_summary": "평가 대상을 확인한 뒤 1차 규칙 평가가 수행됩니다.",
         }
@@ -196,6 +200,9 @@ class DartValidationView(View):
                 analysis = evaluator.evaluate(
                     summary=normalized_block["summary"],
                     normalized_items=normalized_block["items"],
+                )
+                analysis["document_structure_signals"] = _build_document_structure_signals(
+                    disclosures["data"]["document_structure_enrichment"]
                 )
             except DartAPIRequestError as exc:
                 return JsonResponse(
@@ -341,6 +348,62 @@ def _build_document_structure_enrichment(
         "notes": [
             "문서 구조 enrichment는 제한된 건수에만 시도됩니다.",
             "의미 해석 없이 구조 신호만 제공합니다.",
+        ],
+    }
+
+
+def _build_document_structure_signals(enrichment: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(enrichment, dict):
+        return {
+            "available": False,
+            "reason": "document_structure_enrichment가 없습니다.",
+        }
+
+    items = [item for item in enrichment.get("items", []) if isinstance(item, dict)]
+    enriched_items = [item for item in items if item.get("status") == "enriched"]
+
+    heading_available_count = sum(1 for item in items if item.get("heading_candidates_available"))
+    section_like_count = sum(1 for item in items if item.get("section_like_tags_exist"))
+    table_like_count = sum(1 for item in items if item.get("table_like_structure_present"))
+    cover_like_count = sum(1 for item in items if item.get("has_cover_like_structure"))
+    body_like_count = sum(1 for item in items if item.get("has_body_like_structure"))
+    summary_like_count = sum(1 for item in items if item.get("has_summary_like_structure"))
+
+    heading_candidate_count_preview = [
+        {
+            "rcept_no": item.get("rcept_no"),
+            "heading_candidate_count": item.get("heading_candidate_count", 0),
+        }
+        for item in items[:3]
+    ]
+    heading_text_preview = [
+        {
+            "rcept_no": item.get("rcept_no"),
+            "heading_candidates_preview": item.get("heading_candidates_preview", [])[:3],
+        }
+        for item in items
+        if item.get("heading_candidates_preview")
+    ][:3]
+
+    return {
+        "available": True,
+        "derived_from": "document_structure_enrichment",
+        "attempted_item_count": enrichment.get("attempted_item_count", 0),
+        "enriched_item_count": len(enriched_items),
+        "heading_candidates_available_count": heading_available_count,
+        "section_like_structure_count": section_like_count,
+        "table_like_structure_count": table_like_count,
+        "cover_like_structure_count": cover_like_count,
+        "body_like_structure_count": body_like_count,
+        "summary_like_structure_count": summary_like_count,
+        "document_structure_available": len(enriched_items) > 0,
+        "document_heading_candidates_available": heading_available_count > 0,
+        "section_like_structure_present": section_like_count > 0,
+        "table_heavy_document_present": table_like_count > 0,
+        "heading_candidate_count_preview": heading_candidate_count_preview,
+        "heading_text_preview": heading_text_preview,
+        "notes": [
+            "문서 구조 신호 집계는 의미 해석 없이 구조 수준으로만 제공됩니다.",
         ],
     }
 

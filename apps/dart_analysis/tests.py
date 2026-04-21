@@ -435,6 +435,7 @@ class DartValidationViewTests(TestCase):
             "financing",
         )
         self.assertIn("risk_flags", payload["analysis"])
+        self.assertIn("document_structure_signals", payload["analysis"])
         self.assertIn("document_structure_enrichment", payload["disclosures"]["data"])
         mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
 
@@ -473,6 +474,10 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(enrichment["max_items_per_response"], 1)
         self.assertEqual(enrichment["attempted_item_count"], 1)
         self.assertEqual(len(enrichment["items"]), 1)
+        signals = payload["analysis"]["document_structure_signals"]
+        self.assertTrue(signals["available"])
+        self.assertIn("heading_candidate_count_preview", signals)
+        self.assertNotIn("semantic_labels", signals)
         item = enrichment["items"][0]
         self.assertTrue(item["inspection_attempted"])
         self.assertIn(item["status"], {"enriched", "no_structure_signal"})
@@ -509,6 +514,10 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(enrichment["attempted_item_count"], 1)
         self.assertEqual(enrichment["items"][0]["status"], "document_fetch_failed")
         self.assertIn("error", enrichment["items"][0])
+        signals = payload["analysis"]["document_structure_signals"]
+        self.assertTrue(signals["available"])
+        self.assertEqual(signals["enriched_item_count"], 0)
+        self.assertFalse(signals["document_structure_available"])
 
     def test_resolver_does_not_guess_non_exact_match(self):
         client = DartClient(api_key="dummy")
@@ -763,6 +772,7 @@ class DartValidationViewTests(TestCase):
         self.assertIn("lookup_plan", payload)
         self.assertIn("disclosures", payload)
         self.assertIn("analysis", payload)
+        self.assertIn("document_structure_signals", payload["analysis"])
         self.assertIn("raw_items", payload["disclosures"]["data"])
         self.assertIn("normalized_items", payload["disclosures"]["data"])
         self.assertIn("summary", payload["disclosures"]["data"])

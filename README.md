@@ -73,6 +73,8 @@ python manage.py test apps.dart_analysis
 - `implemented`, `basis`, `risk_flags`, `positive_flags`, `neutral_flags`, `notes`, `evaluation_summary`를 반환합니다.
 - 근거는 공시 목록 메타데이터 및 제목 기반 규칙(`report_nm`)으로 제한됩니다.
 - 본문 파싱 전 단계이므로 최종 투자 판단으로 사용하면 안 됩니다.
+- `analysis.document_structure_signals`는 `document_structure_enrichment`를 재집계한 구조 신호 요약입니다(heading 후보 가용 건수, section/table/cover/body/summary 유사 구조 건수 등).
+- `analysis.document_structure_signals`는 구조 수준 집계만 제공하며, heading 텍스트 의미 해석/비즈니스 결론은 포함하지 않습니다.
 
 ## validate 응답의 문서 구조 enrichment(선택적)
 - `/api/v1/dart/validate`의 `disclosures.data.document_structure_enrichment`는 공시 목록 중 제한된 건수(현재 기본 1건)에 대해 문서 구조 신호를 추가로 제공합니다.
