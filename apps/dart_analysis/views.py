@@ -169,6 +169,13 @@ class DartValidationView(View):
             "notes": ["corp_code 확인 전에는 1차 규칙 평가를 수행하지 않습니다."],
             "evaluation_summary": "평가 대상을 확인한 뒤 1차 규칙 평가가 수행됩니다.",
         }
+        report_preview: dict[str, Any] = _build_report_preview(
+            normalized_items=[],
+            summary={},
+            analysis=analysis,
+            document_structure_enrichment=None,
+            max_cards=3,
+        )
 
         disclosures: dict[str, Any] = {
             "attempted": False,
@@ -216,6 +223,13 @@ class DartValidationView(View):
                     *analysis.get("notes", []),
                     "document_structure_hints는 구조 신호 기반의 정보성 힌트이며 의미 해석/투자 판단을 포함하지 않습니다.",
                 ]
+                report_preview = _build_report_preview(
+                    normalized_items=normalized_block["items"],
+                    summary=normalized_block["summary"],
+                    analysis=analysis,
+                    document_structure_enrichment=disclosures["data"]["document_structure_enrichment"],
+                    max_cards=3,
+                )
             except DartAPIRequestError as exc:
                 return JsonResponse(
                     {
@@ -249,6 +263,7 @@ class DartValidationView(View):
                 ),
                 "disclosures": disclosures,
                 "analysis": analysis,
+                "report_preview": report_preview,
             }
         )
 
@@ -461,6 +476,98 @@ def _build_document_structure_hints(document_structure_signals: dict[str, Any] |
         "informational_notes": [
             "구조 힌트는 heading/section/table/cover/body/summary 존재 여부를 정보성으로만 표시합니다.",
             "구조 힌트는 사업 의미나 투자 판단을 직접 나타내지 않습니다.",
+        ],
+    }
+
+
+def _build_report_preview(
+    *,
+    normalized_items: list[dict[str, Any]] | None,
+    summary: dict[str, Any] | None,
+    analysis: dict[str, Any] | None,
+    document_structure_enrichment: dict[str, Any] | None,
+    max_cards: int,
+) -> dict[str, Any]:
+    safe_items = [item for item in (normalized_items or []) if isinstance(item, dict)]
+    safe_summary = summary if isinstance(summary, dict) else {}
+    safe_analysis = analysis if isinstance(analysis, dict) else {}
+    enrichment_items = []
+    if isinstance(document_structure_enrichment, dict):
+        enrichment_items = [item for item in document_structure_enrichment.get("items", []) if isinstance(item, dict)]
+    enrichment_map = {str(item.get("rcept_no")): item for item in enrichment_items if item.get("rcept_no")}
+
+    risk_count = len(safe_analysis.get("risk_flags", []))
+    positive_count = len(safe_analysis.get("positive_flags", []))
+    total_disclosures = int(safe_summary.get("total_disclosures", len(safe_items)) or 0)
+    category_breakdown = safe_summary.get("category_counts", {})
+    category_labels = sorted(category_breakdown.keys()) if isinstance(category_breakdown, dict) else []
+
+    summary_line = (
+        f"최근 공시 {total_disclosures}건을 제목/메타데이터 및 제한적 문서 구조 신호 기준으로 요약했습니다."
+        if total_disclosures > 0
+        else "조회된 공시가 없어 제목/구조 기반 미리보기 항목이 제한됩니다."
+    )
+
+    key_points = [
+        f"정규화된 공시 건수: {total_disclosures}건",
+        f"탐지된 분류: {', '.join(category_labels) if category_labels else '없음'}",
+        f"1차 규칙 신호 수: 위험 {risk_count}건 / 긍정 {positive_count}건",
+    ]
+
+    caution_points = [
+        "이 블록은 제목/메타데이터 및 문서 구조 신호만 사용합니다.",
+        "본문 의미 해석, 사업 결론, 투자 판단은 포함하지 않습니다.",
+    ]
+
+    signals = safe_analysis.get("document_structure_signals", {})
+    hints = safe_analysis.get("document_structure_hints", {})
+    structure_notes = [
+        f"문서 구조 신호 가용 여부: {'예' if isinstance(signals, dict) and signals.get('available') else '아니오'}",
+        (
+            f"heading 후보 가용 건수: {signals.get('heading_candidates_available_count', 0)}"
+            if isinstance(signals, dict)
+            else "heading 후보 가용 건수: 0"
+        ),
+        (
+            f"구조 힌트 플래그: {', '.join(hints.get('hint_flags', [])) if hints.get('hint_flags') else '없음'}"
+            if isinstance(hints, dict)
+            else "구조 힌트 플래그: 없음"
+        ),
+    ]
+
+    preview_cards = []
+    for item in safe_items[:max_cards]:
+        source = item.get("raw", {}) if isinstance(item.get("raw"), dict) else {}
+        normalized = item.get("normalized", {}) if isinstance(item.get("normalized"), dict) else {}
+        detected_signals = normalized.get("detected_signals", [])
+        if not isinstance(detected_signals, list):
+            detected_signals = []
+        rcept_no = str(source.get("rcept_no") or "")
+        enrich_item = enrichment_map.get(rcept_no, {})
+        preview_cards.append(
+            {
+                "rcept_no": source.get("rcept_no"),
+                "report_nm": source.get("report_nm"),
+                "rcept_dt": source.get("rcept_dt"),
+                "normalized_category": normalized.get("category"),
+                "detected_signals": detected_signals,
+                "document_structure_available": bool(enrich_item.get("document_outline_available")),
+                "heading_candidates_available": bool(enrich_item.get("heading_candidates_available")),
+                "heading_candidates_preview": enrich_item.get("heading_candidates_preview", [])[:3],
+                "structure_status": enrich_item.get("status") if enrich_item else "not_attempted",
+            }
+        )
+
+    return {
+        "available": True,
+        "summary_line": summary_line,
+        "key_points": key_points,
+        "caution_points": caution_points,
+        "structure_notes": structure_notes,
+        "disclosure_preview_cards": preview_cards,
+        "limitations": [
+            "제목/메타데이터/구조 신호 기반의 미리보기이며 본문 전체 해석이 아닙니다.",
+            "의미 라벨링, 투자 권고, 매수/매도 판단을 생성하지 않습니다.",
         ],
     }
 

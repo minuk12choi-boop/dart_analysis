@@ -78,6 +78,18 @@ python manage.py test apps.dart_analysis
 - `analysis.document_structure_hints`는 `document_structure_signals`를 기반으로 만든 정보성 플래그 집합입니다(`structured_document_detected` 등).
 - `analysis.document_structure_hints`는 구조 존재 여부를 표시할 뿐, 의미 해석/사업 결론/투자 판단을 제공하지 않습니다.
 
+## report_preview 블록(사람 친화 미리보기)
+- `/api/v1/dart/validate`는 기존 기계 친화 블록과 별도로 `report_preview`를 제공합니다.
+- `report_preview`는 이미 검증된 데이터(`normalized_items`, `summary`, `analysis`, `document_structure_enrichment`)만 재구성합니다.
+- `report_preview` 주요 필드:
+  - `summary_line`: 보수적 1줄 요약
+  - `key_points`: 핵심 포인트 목록
+  - `caution_points`: 해석 유의사항 목록
+  - `structure_notes`: 구조 신호/힌트 요약 목록
+  - `disclosure_preview_cards`: 공시 카드 미리보기(최대 3건)
+  - `limitations`: 해석 경계(제목/구조 기반, 본문 의미 해석/투자 판단 미포함)
+- `report_preview`는 문서 enrichment가 일부 실패해도 가능한 범위에서 생성되며, validate 전체 응답 실패를 유발하지 않습니다.
+
 ## validate 응답의 문서 구조 enrichment(선택적)
 - `/api/v1/dart/validate`의 `disclosures.data.document_structure_enrichment`는 공시 목록 중 제한된 건수(현재 기본 1건)에 대해 문서 구조 신호를 추가로 제공합니다.
 - 제공 정보는 `document_outline`/`document_heading_candidates`에서 파생한 구조 신호만 포함하며, 의미 해석/비즈니스 라벨은 포함하지 않습니다.

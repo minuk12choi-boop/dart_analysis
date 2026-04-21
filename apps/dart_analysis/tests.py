@@ -437,6 +437,7 @@ class DartValidationViewTests(TestCase):
         self.assertIn("risk_flags", payload["analysis"])
         self.assertIn("document_structure_signals", payload["analysis"])
         self.assertIn("document_structure_hints", payload["analysis"])
+        self.assertIn("report_preview", payload)
         self.assertIn("document_structure_enrichment", payload["disclosures"]["data"])
         mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
 
@@ -485,6 +486,16 @@ class DartValidationViewTests(TestCase):
         self.assertIn("informational_notes", hints)
         self.assertNotIn("semantic_labels", signals)
         self.assertNotIn("semantic_labels", hints)
+        self.assertIn("report_preview", payload)
+        preview = payload["report_preview"]
+        self.assertIn("summary_line", preview)
+        self.assertIn("key_points", preview)
+        self.assertIn("caution_points", preview)
+        self.assertIn("structure_notes", preview)
+        self.assertIn("disclosure_preview_cards", preview)
+        self.assertLessEqual(len(preview["disclosure_preview_cards"]), 3)
+        self.assertNotIn("semantic_labels", preview)
+        self.assertNotIn("investment_opinion", preview)
         item = enrichment["items"][0]
         self.assertTrue(item["inspection_attempted"])
         self.assertIn(item["status"], {"enriched", "no_structure_signal"})
@@ -528,6 +539,14 @@ class DartValidationViewTests(TestCase):
         self.assertFalse(signals["document_structure_available"])
         self.assertTrue(hints["available"])
         self.assertNotIn("semantic_labels", hints)
+        preview = payload["report_preview"]
+        self.assertIn("summary_line", preview)
+        self.assertIn("key_points", preview)
+        self.assertIn("caution_points", preview)
+        self.assertIn("disclosure_preview_cards", preview)
+        self.assertEqual(len(preview["disclosure_preview_cards"]), 1)
+        self.assertEqual(preview["disclosure_preview_cards"][0]["structure_status"], "document_fetch_failed")
+        self.assertNotIn("investment_recommendation", preview)
 
     def test_resolver_does_not_guess_non_exact_match(self):
         client = DartClient(api_key="dummy")
@@ -782,6 +801,7 @@ class DartValidationViewTests(TestCase):
         self.assertIn("lookup_plan", payload)
         self.assertIn("disclosures", payload)
         self.assertIn("analysis", payload)
+        self.assertIn("report_preview", payload)
         self.assertIn("document_structure_signals", payload["analysis"])
         self.assertIn("document_structure_hints", payload["analysis"])
         self.assertIn("raw_items", payload["disclosures"]["data"])
@@ -789,3 +809,61 @@ class DartValidationViewTests(TestCase):
         self.assertIn("summary", payload["disclosures"]["data"])
         self.assertIn("original_document_access", payload["disclosures"]["data"])
         self.assertIn("document_structure_enrichment", payload["disclosures"]["data"])
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_report_preview_cards_are_limited_to_three_items(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 4,
+            "items": [
+                {
+                    "rcept_no": "20260101000001",
+                    "report_nm": "사업보고서",
+                    "rcept_dt": "20260101",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                },
+                {
+                    "rcept_no": "20260102000002",
+                    "report_nm": "분기보고서",
+                    "rcept_dt": "20260102",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                },
+                {
+                    "rcept_no": "20260103000003",
+                    "report_nm": "유상증자 결정",
+                    "rcept_dt": "20260103",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                },
+                {
+                    "rcept_no": "20260104000004",
+                    "report_nm": "최대주주 변경",
+                    "rcept_dt": "20260104",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                },
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/api/v1/dart/validate", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        cards = payload["report_preview"]["disclosure_preview_cards"]
+        self.assertEqual(len(cards), 3)
+        self.assertEqual(cards[0]["rcept_no"], "20260101000001")
+        self.assertEqual(cards[2]["rcept_no"], "20260103000003")
