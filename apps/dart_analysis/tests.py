@@ -13,6 +13,7 @@ from services.document_heading_candidates_builder import DocumentHeadingCandidat
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.first_pass_evaluator import FirstPassEvaluator
+from services.type_specific_analyzer import TypeSpecificAnalyzer
 
 
 def _build_test_zip_payload() -> bytes:
@@ -114,6 +115,54 @@ class DartClientDocumentAccessTests(TestCase):
         client = DartClient(api_key="dummy")
         url = client.build_viewer_url("20260101000001")
         self.assertEqual(url, "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001")
+
+
+class TypeSpecificAnalyzerTests(TestCase):
+    def setUp(self) -> None:
+        self.analyzer = TypeSpecificAnalyzer()
+
+    def test_supported_types_are_classified(self):
+        normalized_items = [
+            {
+                "raw": {"rcept_no": "1", "report_nm": "유상증자 결정", "rcept_dt": "20260101"},
+                "normalized": {"category": "financing", "detected_signals": ["rights_offering"]},
+            },
+            {
+                "raw": {"rcept_no": "2", "report_nm": "전환사채권발행결정", "rcept_dt": "20260102"},
+                "normalized": {"category": "financing", "detected_signals": ["convertible_bond"]},
+            },
+            {
+                "raw": {"rcept_no": "3", "report_nm": "최대주주 변경", "rcept_dt": "20260103"},
+                "normalized": {"category": "ownership_or_major_shareholder", "detected_signals": ["major_shareholder_change"]},
+            },
+            {
+                "raw": {"rcept_no": "4", "report_nm": "단일판매·공급계약 체결", "rcept_dt": "20260104"},
+                "normalized": {"category": "contract_or_business", "detected_signals": ["supply_contract"]},
+            },
+            {
+                "raw": {"rcept_no": "5", "report_nm": "사업보고서", "rcept_dt": "20260105"},
+                "normalized": {"category": "periodic_report", "detected_signals": ["periodic_reporting"]},
+            },
+        ]
+        result = self.analyzer.analyze(normalized_items=normalized_items, document_structure_enrichment=None)
+        rules = [item["matched_type_rule"] for item in result["type_specific_analysis"]["items"]]
+        self.assertIn("rights_offering_or_capital_increase", rules)
+        self.assertIn("convertible_bond_or_bond_with_warrant", rules)
+        self.assertIn("ownership_or_major_shareholder_change", rules)
+        self.assertIn("supply_or_business_contract", rules)
+        self.assertIn("periodic_report", rules)
+
+    def test_unsupported_type_returns_not_applicable(self):
+        normalized_items = [
+            {
+                "raw": {"rcept_no": "9", "report_nm": "기타공시", "rcept_dt": "20260109"},
+                "normalized": {"category": "other", "detected_signals": []},
+            }
+        ]
+        result = self.analyzer.analyze(normalized_items=normalized_items, document_structure_enrichment=None)
+        item = result["type_specific_analysis"]["items"][0]
+        self.assertEqual(item["status"], "not_applicable")
+        self.assertIsNone(item["matched_type_rule"])
 
 
 class DocumentZipInspectorTests(TestCase):
@@ -438,6 +487,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn("document_structure_signals", payload["analysis"])
         self.assertIn("document_structure_hints", payload["analysis"])
         self.assertIn("report_preview", payload)
+        self.assertIn("type_specific_analysis", payload)
+        self.assertIn("type_specific_summary", payload)
         self.assertIn("document_structure_enrichment", payload["disclosures"]["data"])
         mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
 
@@ -496,6 +547,13 @@ class DartValidationViewTests(TestCase):
         self.assertLessEqual(len(preview["disclosure_preview_cards"]), 3)
         self.assertNotIn("semantic_labels", preview)
         self.assertNotIn("investment_opinion", preview)
+        self.assertIn("type_specific_analysis", payload)
+        self.assertIn("type_specific_summary", payload)
+        type_item = payload["type_specific_analysis"]["items"][0]
+        self.assertIn("matched_type_rule", type_item)
+        self.assertIn("type_specific_facts", type_item)
+        self.assertIn("type_specific_hints", type_item)
+        self.assertNotIn("investment_recommendation", type_item)
         item = enrichment["items"][0]
         self.assertTrue(item["inspection_attempted"])
         self.assertIn(item["status"], {"enriched", "no_structure_signal"})
@@ -547,6 +605,9 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(len(preview["disclosure_preview_cards"]), 1)
         self.assertEqual(preview["disclosure_preview_cards"][0]["structure_status"], "document_fetch_failed")
         self.assertNotIn("investment_recommendation", preview)
+        self.assertIn("type_specific_analysis", payload)
+        self.assertIn("type_specific_summary", payload)
+        self.assertEqual(payload["type_specific_analysis"]["items"][0]["status"], "supported")
 
     def test_resolver_does_not_guess_non_exact_match(self):
         client = DartClient(api_key="dummy")
@@ -802,6 +863,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn("disclosures", payload)
         self.assertIn("analysis", payload)
         self.assertIn("report_preview", payload)
+        self.assertIn("type_specific_analysis", payload)
+        self.assertIn("type_specific_summary", payload)
         self.assertIn("document_structure_signals", payload["analysis"])
         self.assertIn("document_structure_hints", payload["analysis"])
         self.assertIn("raw_items", payload["disclosures"]["data"])
@@ -867,3 +930,31 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(len(cards), 3)
         self.assertEqual(cards[0]["rcept_no"], "20260101000001")
         self.assertEqual(cards[2]["rcept_no"], "20260103000003")
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_validate_type_specific_not_applicable_does_not_break_response(self, mock_fetch):
+        mock_fetch.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {
+                    "rcept_no": "20260109000009",
+                    "report_nm": "기타공시",
+                    "rcept_dt": "20260109",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                }
+            ],
+        }
+
+        response = self.client.get("/api/v1/dart/validate", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("type_specific_analysis", payload)
+        self.assertIn("type_specific_summary", payload)
+        item = payload["type_specific_analysis"]["items"][0]
+        self.assertEqual(item["status"], "not_applicable")
+        self.assertIsNone(item["matched_type_rule"])

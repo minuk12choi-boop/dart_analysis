@@ -11,6 +11,7 @@ from core.env import MissingDartApiKeyError
 from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
 from services.first_pass_evaluator import FirstPassEvaluator
+from services.type_specific_analyzer import TypeSpecificAnalyzer
 from services.document_heading_candidates_builder import DocumentHeadingCandidatesBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
@@ -150,6 +151,7 @@ class DartValidationView(View):
 
         normalizer = DisclosureNormalizer()
         evaluator = FirstPassEvaluator()
+        type_specific_analyzer = TypeSpecificAnalyzer()
 
         analysis: dict[str, Any] = {
             "implemented": False,
@@ -175,6 +177,10 @@ class DartValidationView(View):
             analysis=analysis,
             document_structure_enrichment=None,
             max_cards=3,
+        )
+        type_specific_result = type_specific_analyzer.analyze(
+            normalized_items=[],
+            document_structure_enrichment=None,
         )
 
         disclosures: dict[str, Any] = {
@@ -230,6 +236,10 @@ class DartValidationView(View):
                     document_structure_enrichment=disclosures["data"]["document_structure_enrichment"],
                     max_cards=3,
                 )
+                type_specific_result = type_specific_analyzer.analyze(
+                    normalized_items=normalized_block["items"],
+                    document_structure_enrichment=disclosures["data"]["document_structure_enrichment"],
+                )
             except DartAPIRequestError as exc:
                 return JsonResponse(
                     {
@@ -264,6 +274,8 @@ class DartValidationView(View):
                 "disclosures": disclosures,
                 "analysis": analysis,
                 "report_preview": report_preview,
+                "type_specific_analysis": type_specific_result["type_specific_analysis"],
+                "type_specific_summary": type_specific_result["type_specific_summary"],
             }
         )
 

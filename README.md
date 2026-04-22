@@ -90,6 +90,23 @@ python manage.py test apps.dart_analysis
   - `limitations`: 해석 경계(제목/구조 기반, 본문 의미 해석/투자 판단 미포함)
 - `report_preview`는 문서 enrichment가 일부 실패해도 가능한 범위에서 생성되며, validate 전체 응답 실패를 유발하지 않습니다.
 
+## type-specific 블록(1차 타입별 규칙 팩)
+- `/api/v1/dart/validate`는 `type_specific_analysis`, `type_specific_summary`를 함께 반환합니다.
+- 이 블록은 다음 안전 입력만 사용합니다:
+  - `report_nm`
+  - 정규화 카테고리
+  - 제목 기반 신호(`detected_signals`)
+  - `document_structure_enrichment`의 제한적 구조 정보
+- 초기 지원 타입(1차 규칙):
+  - `rights_offering_or_capital_increase`
+  - `convertible_bond_or_bond_with_warrant`
+  - `ownership_or_major_shareholder_change`
+  - `supply_or_business_contract`
+  - `periodic_report`
+- 각 공시 항목은 `matched_type_rule`, `type_specific_facts`, `type_specific_hints`, `limitations`를 제공합니다.
+- 지원 대상이 아닌 공시는 `status: not_applicable`로 반환되며 validate 전체 응답은 유지됩니다.
+- 이 단계는 타입별 사실/주의 힌트만 다루며, 본문 의미 해석/투자 판단/최종 내러티브 리포트는 포함하지 않습니다.
+
 ## validate 응답의 문서 구조 enrichment(선택적)
 - `/api/v1/dart/validate`의 `disclosures.data.document_structure_enrichment`는 공시 목록 중 제한된 건수(현재 기본 1건)에 대해 문서 구조 신호를 추가로 제공합니다.
 - 제공 정보는 `document_outline`/`document_heading_candidates`에서 파생한 구조 신호만 포함하며, 의미 해석/비즈니스 라벨은 포함하지 않습니다.
