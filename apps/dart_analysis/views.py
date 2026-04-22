@@ -181,7 +181,7 @@ class DartValidationView(View):
             summary={},
             analysis=analysis,
             document_structure_enrichment=None,
-            max_cards=3,
+            max_cards=get_env_int("DART_REPORT_PREVIEW_CARD_LIMIT", 3, min_value=1),
         )
         type_specific_result = type_specific_analyzer.analyze(
             normalized_items=[],
@@ -216,7 +216,7 @@ class DartValidationView(View):
                         "document_structure_enrichment": _build_document_structure_enrichment(
                             client=client,
                             raw_items=disclosure_data.get("items", []),
-                            max_items=1,
+                            max_items=get_env_int("DART_DOCUMENT_ENRICHMENT_MAX_ITEMS", 1, min_value=1),
                         ),
                     },
                 }
@@ -239,7 +239,7 @@ class DartValidationView(View):
                     summary=normalized_block["summary"],
                     analysis=analysis,
                     document_structure_enrichment=disclosures["data"]["document_structure_enrichment"],
-                    max_cards=3,
+                    max_cards=get_env_int("DART_REPORT_PREVIEW_CARD_LIMIT", 3, min_value=1),
                 )
                 type_specific_result = type_specific_analyzer.analyze(
                     normalized_items=normalized_block["items"],

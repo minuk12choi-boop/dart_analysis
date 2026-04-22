@@ -36,6 +36,8 @@ export DART_CORP_CODE_CACHE_TTL_SECONDS=86400
 export DART_DISCLOSURE_LIST_CACHE_TTL_SECONDS=600
 export DART_ORIGINAL_DOCUMENT_CACHE_TTL_SECONDS=600
 export DART_REPORT_CARD_LIMIT=3
+export DART_REPORT_PREVIEW_CARD_LIMIT=3
+export DART_DOCUMENT_ENRICHMENT_MAX_ITEMS=1
 ```
 
 ### 3) 개발 서버 실행
@@ -63,6 +65,11 @@ curl "http://127.0.0.1:8000/api/v1/dart/validate?corp_code=00126380"
 curl "http://127.0.0.1:8000/api/v1/dart/report?corp_code=00126380"
 ```
 
+### 예시 3-1: 브라우저 UI 조회
+- URL: `GET /dart/`
+- 회사명 또는 corp_code 입력 후 조회 버튼 클릭
+- 주요 표시 항목: `executive_summary`, `key_findings`, `caution_findings`, `structure_findings`, `disclosure_cards`, `limitations`, `status`
+
 ### 예시 4: rcept_no 기반 원문 접근 메타데이터 조회
 ```bash
 curl "http://127.0.0.1:8000/api/v1/dart/document?rcept_no=20260101000001"
@@ -83,8 +90,9 @@ python manage.py test apps.dart_analysis
 ```
 
 ## 참고
-- 현재 단계에서는 **전체 공시 본문 파싱/신호 추출/평가/최종 한국어 리포트 생성**을 아직 구현하지 않았습니다.
-- 다음 단계는 공시 카테고리 정규화와 핵심 시그널 추출 연결입니다.
+- 현재 리포트는 제목/메타데이터/제한적 구조 신호 중심의 보수적 요약입니다.
+- 본문 전체 의미 해석, 정량 재무값 정밀 추출, 투자 추천/매수·매도 판단은 포함하지 않습니다.
+- 중요한 의사결정 전에는 `rcept_no` 기반 원문 공시를 반드시 확인하세요.
 
 
 ## analysis 블록(1차 규칙 평가)
@@ -108,6 +116,10 @@ python manage.py test apps.dart_analysis
   - `disclosure_cards`(기본 최대 3건)
   - `limitations`
   - `status`
+- 호환성 확장 블록(기존 키 유지 + 별칭 추가):
+  - `executive_summary.summary_text` (`summary_line` 별칭)
+  - `findings.key`, `findings.caution`, `findings.structure`
+  - `report_meta.field_aliases` (별칭 매핑 안내)
 - `disclosure_cards`는 검증된 기존 필드만 사용합니다(rcept_no/report_nm/rcept_dt, 정규화 카테고리, 감지 신호, 타입별 규칙/사실/힌트, 구조 미리보기 등).
 - `disclosure_cards`의 preview 필드는 소비자 가독성을 위해 품질 필터를 적용합니다.
   - 공백 정규화/길이 제한
@@ -162,6 +174,16 @@ python manage.py test apps.dart_analysis
 - `/api/v1/dart/validate`, `/api/v1/dart/document`는 `upstream_status`, `cache_status`를 포함해
   최근 업스트림 시도 상태/캐시 히트·미스·쓰기 상태를 기계적으로 확인할 수 있습니다.
 - 업스트림 실패 시에도 가능한 범위에서 구조화된 상태 블록을 유지해 진단 가능성을 높였습니다.
+- 주요 운영 환경변수:
+  - `DART_TIMEOUT_SECONDS`: 업스트림 요청 타임아웃(기본 20초)
+  - `DART_MAX_RETRIES`: 업스트림 재시도 횟수(기본 1)
+  - `DART_ENABLE_CACHE`: 로컬 캐시 사용 여부(기본 1)
+  - `DART_CORP_CODE_CACHE_TTL_SECONDS`: 기업코드 캐시 TTL(기본 86400초)
+  - `DART_DISCLOSURE_LIST_CACHE_TTL_SECONDS`: 공시목록 캐시 TTL(기본 600초)
+  - `DART_ORIGINAL_DOCUMENT_CACHE_TTL_SECONDS`: 원문 캐시 TTL(기본 600초)
+  - `DART_REPORT_CARD_LIMIT`: `/api/v1/dart/report`의 `disclosure_cards` 최대 개수(기본 3)
+  - `DART_REPORT_PREVIEW_CARD_LIMIT`: `/api/v1/dart/validate`의 `report_preview.disclosure_preview_cards` 최대 개수(기본 3)
+  - `DART_DOCUMENT_ENRICHMENT_MAX_ITEMS`: validate 단계의 문서 구조 enrichment 최대 시도 건수(기본 1)
 
 
 ## 원문 접근 메타데이터

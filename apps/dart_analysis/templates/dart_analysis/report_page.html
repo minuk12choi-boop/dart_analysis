@@ -18,7 +18,7 @@
   <h1>DART 공시 리포트 조회</h1>
   <p class="muted">회사명 또는 corp_code를 입력해 최종 소비자용 리포트를 확인하세요.</p>
 
-  <form method="get" onsubmit="document.getElementById('loading').style.display='block'">
+  <form method="get" onsubmit="document.getElementById('loading').style.display='block'; this.querySelector('button').disabled=true;">
     <input type="text" name="company_name" placeholder="회사명 (예: 삼성전자)" value="{{ company_name }}">
     <input type="text" name="corp_code" placeholder="corp_code (8자리)" value="{{ corp_code }}">
     <button type="submit">조회</button>
@@ -33,9 +33,13 @@
       <p><strong>{{ report.status.code }}</strong> - {{ report.status.message }}</p>
     </div>
 
+    {% if report.status.code == "error" %}
+      <p class="error">입력값 또는 조회 상태로 인해 리포트가 제한되어 표시됩니다.</p>
+    {% endif %}
+
     <div class="card">
       <h2>요약</h2>
-      <p>{{ report.executive_summary.summary_line|default:"요약 정보가 없습니다." }}</p>
+      <p>{{ report.executive_summary.summary_text|default:report.executive_summary.summary_line|default:"요약 정보가 없습니다." }}</p>
     </div>
 
     <div class="card">
