@@ -14,6 +14,7 @@ from services.disclosure_normalizer import DisclosureNormalizer
 from services.first_pass_evaluator import FirstPassEvaluator
 from services.type_specific_analyzer import TypeSpecificAnalyzer
 from services.final_report_builder import FinalReportBuilder
+from services.investment_report_builder import InvestmentReportBuilder
 from services.document_heading_candidates_builder import DocumentHeadingCandidatesBuilder
 from services.document_text_extract_builder import DocumentTextExtractBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
@@ -327,11 +328,17 @@ class DartReportPageView(View):
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any):
         company_name = (request.GET.get("company_name") or "").strip()
         corp_code = (request.GET.get("corp_code") or "").strip()
+        report_type = (request.GET.get("report_type") or "basic").strip().lower()
+        if report_type not in {"basic", "investment"}:
+            report_type = "basic"
         report_payload: dict[str, Any] | None = None
         query_attempted = bool(company_name or corp_code)
 
         if query_attempted:
-            api_response = DartReportView().dispatch(request, *args, **kwargs)
+            if report_type == "investment":
+                api_response = DartInvestmentReportView().dispatch(request, *args, **kwargs)
+            else:
+                api_response = DartReportView().dispatch(request, *args, **kwargs)
             try:
                 report_payload = json.loads(api_response.content.decode("utf-8"))
             except json.JSONDecodeError:
@@ -351,10 +358,37 @@ class DartReportPageView(View):
             {
                 "company_name": company_name,
                 "corp_code": corp_code,
+                "report_type": report_type,
                 "query_attempted": query_attempted,
                 "report": report_payload,
             },
         )
+
+
+class DartInvestmentReportView(View):
+    http_method_names = ["get", "post"]
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        validate_response = DartValidationView().dispatch(request, *args, **kwargs)
+        try:
+            validate_payload = json.loads(validate_response.content.decode("utf-8"))
+        except json.JSONDecodeError:
+            validate_payload = {"ok": False, "error": {"code": "invalid_validate_payload"}}
+
+        investment_payload = InvestmentReportBuilder(
+            display_card_limit=get_env_int("DART_INVESTMENT_DISPLAY_CARD_LIMIT", 3, min_value=1)
+        ).build(
+            validate_payload=validate_payload,
+            validate_status_code=validate_response.status_code,
+        )
+
+        status_code = validate_response.status_code
+        if investment_payload.get("status", {}).get("code") in {"ok"}:
+            status_code = 200
+        return JsonResponse(investment_payload, status=status_code)
+
+    get = dispatch
+    post = dispatch
 
 
 def _build_original_document_access(client: DartClient, raw_items: list[dict[str, Any]]) -> dict[str, Any]:

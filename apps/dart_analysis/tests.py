@@ -14,8 +14,11 @@ from services.document_heading_candidates_builder import DocumentHeadingCandidat
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.document_text_extract_builder import DocumentTextExtractBuilder
+from services.disclosure_meaning_evaluator import DisclosureMeaningEvaluator
 from services.final_report_builder import FinalReportBuilder
 from services.first_pass_evaluator import FirstPassEvaluator
+from services.market_data_provider import MarketDataProvider
+from services.price_assessment_engine import PriceAssessmentEngine
 from services.type_specific_analyzer import TypeSpecificAnalyzer
 
 
@@ -317,6 +320,45 @@ class FinalReportBuilderQualityTests(TestCase):
         self.assertEqual(report["executive_summary"]["summary_text"], report["executive_summary"]["summary_line"])
         self.assertIn("findings", report)
         self.assertIn("field_aliases", report["report_meta"])
+
+
+class InvestmentEngineUnitTests(TestCase):
+    def test_market_data_provider_returns_insufficient_when_unconfigured(self):
+        with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "none"}, clear=False):
+            status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="005930")
+        self.assertTrue(status["insufficient_market_data"])
+        self.assertIn("current_price", status["unavailable_fields"])
+
+    def test_price_engine_returns_insufficient_without_market_data(self):
+        result = PriceAssessmentEngine().build(
+            market_data_status={"insufficient_market_data": True, "data": {}},
+            aggregate_signal_direction="mixed",
+        )
+        self.assertEqual(result["price_assessment_status"], "insufficient_market_data")
+        self.assertIsNone(result["entry_zone"])
+        self.assertIsNone(result["exit_zone"])
+
+    def test_disclosure_meaning_evaluator_outputs_conservative_direction(self):
+        evaluator = DisclosureMeaningEvaluator()
+        result = evaluator.evaluate(
+            normalized_items=[
+                {
+                    "raw": {"rcept_no": "1", "report_nm": "유상증자 결정", "rcept_dt": "20260101"},
+                    "normalized": {"category": "financing", "detected_signals": ["rights_offering"]},
+                },
+                {
+                    "raw": {"rcept_no": "2", "report_nm": "단일판매·공급계약 체결", "rcept_dt": "20260102"},
+                    "normalized": {"category": "contract_or_business", "detected_signals": ["supply_contract"]},
+                },
+            ],
+            type_specific_analysis={"items": []},
+            analysis={},
+            report_preview={},
+            document_structure_enrichment={},
+        )
+        self.assertIn(result["aggregate_signal_assessment"]["signal_direction"], {"mixed", "negative", "positive"})
+        self.assertEqual(result["aggregate_signal_assessment"]["considered_disclosure_count"], 2)
+        self.assertGreaterEqual(len(result["event_assessment"]["items"]), 2)
 
 
 class DocumentZipInspectorTests(TestCase):
@@ -1385,3 +1427,103 @@ class DartValidationViewTests(TestCase):
         self.assertIn("DART 공시 리포트 조회", content)
         self.assertIn("핵심 포인트", content)
         self.assertIn("사업보고서", content)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_investment_report_endpoint_shape_and_insufficient_market_data(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 2,
+            "items": [
+                {"rcept_no": "1", "report_nm": "유상증자 결정", "rcept_dt": "20260101", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+                {"rcept_no": "2", "report_nm": "단일판매·공급계약 체결", "rcept_dt": "20260102", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "none"}, clear=False):
+            response = self.client.get("/api/v1/dart/investment-report", {"corp_code": "00126380"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("event_assessment", payload)
+        self.assertIn("market_data_status", payload)
+        self.assertIn("price_assessment", payload)
+        self.assertIn("aggregate_signal_assessment", payload)
+        self.assertEqual(payload["price_assessment"]["price_assessment_status"], "insufficient_market_data")
+        self.assertTrue(payload["market_data_status"]["insufficient_market_data"])
+        self.assertIsNone(payload["price_assessment"]["entry_zone"])
+        self.assertEqual(payload["report_meta"]["considered_disclosure_count"], 2)
+        self.assertLessEqual(payload["report_meta"]["displayed_disclosure_count"], 3)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_investment_report_uses_available_static_market_data(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260101", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+        with patch.dict(
+            os.environ,
+            {
+                "DART_MARKET_DATA_PROVIDER": "static",
+                "DART_MARKET_PRICE_CURRENT": "71000",
+                "DART_MARKET_PRICE_RECENT_LOW": "68000",
+                "DART_MARKET_PRICE_RECENT_HIGH": "73000",
+                "DART_MARKET_RECENT_VOLUME": "1000000",
+                "DART_MARKET_VOLATILITY_PROXY": "0.12",
+                "DART_MARKET_CAP": "100000000000",
+                "DART_MARKET_SHARE_COUNT": "1400000000",
+            },
+            clear=False,
+        ):
+            response = self.client.get("/api/v1/dart/investment-report", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["market_data_status"]["insufficient_market_data"], False)
+        self.assertEqual(payload["price_assessment"]["price_assessment_status"], "estimated_with_market_data")
+        self.assertIsNotNone(payload["price_assessment"]["entry_zone"])
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_ui_route_renders_investment_report_view(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260101", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+        with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "none"}, clear=False):
+            response = self.client.get("/dart/", {"corp_code": "00126380", "report_type": "investment"})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("투자판단 리포트", content)
+        self.assertIn("집계 시그널", content)
+        self.assertIn("price_assessment_status", content)

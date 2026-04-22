@@ -65,10 +65,16 @@ curl "http://127.0.0.1:8000/api/v1/dart/validate?corp_code=00126380"
 curl "http://127.0.0.1:8000/api/v1/dart/report?corp_code=00126380"
 ```
 
+### 예시 3-0: corp_code 기반 투자판단 리포트 조회
+```bash
+curl "http://127.0.0.1:8000/api/v1/dart/investment-report?corp_code=00126380"
+```
+
 ### 예시 3-1: 브라우저 UI 조회
 - URL: `GET /dart/`
 - 회사명 또는 corp_code 입력 후 조회 버튼 클릭
-- 주요 표시 항목: `executive_summary`, `key_findings`, `caution_findings`, `structure_findings`, `disclosure_cards`, `limitations`, `status`
+- 리포트 타입 선택: `기본 공시 리포트` 또는 `투자판단 리포트`
+- 투자판단 리포트 주요 표시 항목: 집계 시그널 방향/신뢰도, 시장 데이터 상태, 가격판단 상태, 핵심 근거, 주의 포인트, 표시 공시 카드
 
 ### 예시 4: rcept_no 기반 원문 접근 메타데이터 조회
 ```bash
@@ -127,6 +133,28 @@ python manage.py test apps.dart_analysis
   - 노이즈가 심한 값은 빈 목록으로 반환(대체 문구 생성 없음)
 - 본문 재파싱/새 의미 추론/투자 추천은 수행하지 않습니다.
 
+## investment-report 엔드포인트(공시 기반 투자판단 보조 JSON)
+- `/api/v1/dart/investment-report`는 validate 결과를 기반으로 보수적 투자판단 보조 JSON을 생성합니다.
+- 주요 블록:
+  - `request`
+  - `status`
+  - `report_meta`
+  - `window_summary`
+  - `aggregate_signal_assessment`
+  - `event_assessment`
+  - `market_data_status`
+  - `price_assessment`
+  - `key_evidence`
+  - `caution_points`
+  - `considered_disclosures`
+  - `display_disclosure_cards`
+  - `limitations`
+- 시장 데이터가 미설정이거나 부족하면:
+  - `market_data_status.insufficient_market_data: true`
+  - `price_assessment.price_assessment_status: insufficient_market_data`
+  - `entry_zone/exit_zone/risk_cut_zone`는 채우지 않습니다(임의 추정 금지).
+- 이 엔드포인트는 투자판단 보조용이며 확정적 매수/매도 추천을 제공하지 않습니다.
+
 ## report_preview 블록(사람 친화 미리보기)
 - `/api/v1/dart/validate`는 기존 기계 친화 블록과 별도로 `report_preview`를 제공합니다.
 - `report_preview`는 이미 검증된 데이터(`normalized_items`, `summary`, `analysis`, `document_structure_enrichment`)만 재구성합니다.
@@ -184,6 +212,10 @@ python manage.py test apps.dart_analysis
   - `DART_REPORT_CARD_LIMIT`: `/api/v1/dart/report`의 `disclosure_cards` 최대 개수(기본 3)
   - `DART_REPORT_PREVIEW_CARD_LIMIT`: `/api/v1/dart/validate`의 `report_preview.disclosure_preview_cards` 최대 개수(기본 3)
   - `DART_DOCUMENT_ENRICHMENT_MAX_ITEMS`: validate 단계의 문서 구조 enrichment 최대 시도 건수(기본 1)
+  - `DART_INVESTMENT_DISPLAY_CARD_LIMIT`: investment-report의 표시 공시 카드 최대 개수(기본 3)
+  - `DART_MARKET_DATA_PROVIDER`: 시장 데이터 공급자 이름(`none` 또는 `static`, 기본 `none`)
+  - `DART_MARKET_PRICE_CURRENT`, `DART_MARKET_PRICE_RECENT_LOW`, `DART_MARKET_PRICE_RECENT_HIGH`
+  - `DART_MARKET_RECENT_VOLUME`, `DART_MARKET_VOLATILITY_PROXY`, `DART_MARKET_CAP`, `DART_MARKET_SHARE_COUNT`
 
 
 ## 원문 접근 메타데이터

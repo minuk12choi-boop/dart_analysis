@@ -21,6 +21,10 @@
   <form method="get" onsubmit="document.getElementById('loading').style.display='block'; this.querySelector('button').disabled=true;">
     <input type="text" name="company_name" placeholder="회사명 (예: 삼성전자)" value="{{ company_name }}">
     <input type="text" name="corp_code" placeholder="corp_code (8자리)" value="{{ corp_code }}">
+    <select name="report_type">
+      <option value="basic" {% if report_type == "basic" %}selected{% endif %}>기본 공시 리포트</option>
+      <option value="investment" {% if report_type == "investment" %}selected{% endif %}>투자판단 리포트</option>
+    </select>
     <button type="submit">조회</button>
   </form>
   <p id="loading" class="muted" style="display:none;">조회 중입니다...</p>
@@ -36,58 +40,116 @@
     {% if report.status.code == "error" %}
       <p class="error">입력값 또는 조회 상태로 인해 리포트가 제한되어 표시됩니다.</p>
     {% endif %}
+    {% if report_type == "investment" %}
+      <div class="card">
+        <h2>집계 시그널</h2>
+        <div>방향: <strong>{{ report.aggregate_signal_assessment.signal_direction|default:"insufficient_evidence" }}</strong></div>
+        <div>신뢰도: <strong>{{ report.aggregate_signal_assessment.confidence_level|default:"low" }}</strong></div>
+        <div>검토 공시 수: {{ report.aggregate_signal_assessment.considered_disclosure_count|default:0 }}</div>
+      </div>
 
-    <div class="card">
-      <h2>요약</h2>
-      <p>{{ report.executive_summary.summary_text|default:report.executive_summary.summary_line|default:"요약 정보가 없습니다." }}</p>
-    </div>
+      <div class="card">
+        <h2>시장 데이터 상태</h2>
+        <div>상태: {% if report.market_data_status.insufficient_market_data %}insufficient_market_data{% else %}available{% endif %}</div>
+        <div>안내: {{ report.market_data_status.message|default:"시장 데이터 상태 정보가 없습니다." }}</div>
+      </div>
 
-    <div class="card">
-      <h2>핵심 포인트</h2>
-      <ul>
-        {% for item in report.key_findings %}
-          <li>{{ item }}</li>
+      <div class="card">
+        <h2>가격 판단 상태</h2>
+        <div>price_assessment_status: <strong>{{ report.price_assessment.price_assessment_status|default:"unknown" }}</strong></div>
+        <div>entry_zone: {{ report.price_assessment.entry_zone|default:"없음" }}</div>
+        <div>exit_zone: {{ report.price_assessment.exit_zone|default:"없음" }}</div>
+        <div>risk_cut_zone: {{ report.price_assessment.risk_cut_zone|default:"없음" }}</div>
+      </div>
+
+      <div class="card">
+        <h2>핵심 근거</h2>
+        <ul>
+          {% for item in report.key_evidence %}
+            <li>{{ item }}</li>
+          {% empty %}
+            <li class="muted">표시할 근거가 없습니다.</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>주의 포인트</h2>
+        <ul>
+          {% for item in report.caution_points %}
+            <li>{{ item }}</li>
+          {% empty %}
+            <li class="muted">표시할 항목이 없습니다.</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>표시 공시 카드</h2>
+        {% for card in report.display_disclosure_cards %}
+          <div class="card">
+            <strong>{{ card.report_nm }}</strong> ({{ card.rcept_dt }}) / {{ card.rcept_no }}
+            <div>카테고리: {{ card.normalized_category }}</div>
+            <div>감지 신호: {{ card.detected_signals|join:", "|default:"없음" }}</div>
+            <div>타입 규칙: {{ card.type_specific_matched_rule|default:"없음" }}</div>
+          </div>
         {% empty %}
-          <li class="muted">표시할 항목이 없습니다.</li>
+          <p class="muted">표시할 공시 카드가 없습니다.</p>
         {% endfor %}
-      </ul>
-    </div>
+      </div>
+    {% else %}
+      <div class="card">
+        <h2>요약</h2>
+        <p>{{ report.executive_summary.summary_text|default:report.executive_summary.summary_line|default:"요약 정보가 없습니다." }}</p>
+      </div>
 
-    <div class="card">
-      <h2>주의 포인트</h2>
-      <ul>
-        {% for item in report.caution_findings %}
-          <li>{{ item }}</li>
+      <div class="card">
+        <h2>핵심 포인트</h2>
+        <ul>
+          {% for item in report.key_findings %}
+            <li>{{ item }}</li>
+          {% empty %}
+            <li class="muted">표시할 항목이 없습니다.</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>주의 포인트</h2>
+        <ul>
+          {% for item in report.caution_findings %}
+            <li>{{ item }}</li>
+          {% empty %}
+            <li class="muted">표시할 항목이 없습니다.</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>구조 포인트</h2>
+        <ul>
+          {% for item in report.structure_findings %}
+            <li>{{ item }}</li>
+          {% empty %}
+            <li class="muted">표시할 항목이 없습니다.</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>공시 카드</h2>
+        {% for card in report.disclosure_cards %}
+          <div class="card">
+            <strong>{{ card.report_nm }}</strong> ({{ card.rcept_dt }}) / {{ card.rcept_no }}
+            <div>카테고리: {{ card.normalized_category }}</div>
+            <div>감지 신호: {{ card.detected_signals|join:", "|default:"없음" }}</div>
+            <div>타입 규칙: {{ card.type_specific_matched_rule|default:"없음" }}</div>
+          </div>
         {% empty %}
-          <li class="muted">표시할 항목이 없습니다.</li>
+          <p class="muted">표시할 공시 카드가 없습니다.</p>
         {% endfor %}
-      </ul>
-    </div>
-
-    <div class="card">
-      <h2>구조 포인트</h2>
-      <ul>
-        {% for item in report.structure_findings %}
-          <li>{{ item }}</li>
-        {% empty %}
-          <li class="muted">표시할 항목이 없습니다.</li>
-        {% endfor %}
-      </ul>
-    </div>
-
-    <div class="card">
-      <h2>공시 카드</h2>
-      {% for card in report.disclosure_cards %}
-        <div class="card">
-          <strong>{{ card.report_nm }}</strong> ({{ card.rcept_dt }}) / {{ card.rcept_no }}
-          <div>카테고리: {{ card.normalized_category }}</div>
-          <div>감지 신호: {{ card.detected_signals|join:", "|default:"없음" }}</div>
-          <div>타입 규칙: {{ card.type_specific_matched_rule|default:"없음" }}</div>
-        </div>
-      {% empty %}
-        <p class="muted">표시할 공시 카드가 없습니다.</p>
-      {% endfor %}
-    </div>
+      </div>
+    {% endif %}
 
     <div class="card">
       <h2>제한사항</h2>
