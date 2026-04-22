@@ -14,6 +14,7 @@ from services.document_heading_candidates_builder import DocumentHeadingCandidat
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.document_text_extract_builder import DocumentTextExtractBuilder
+from services.final_report_builder import FinalReportBuilder
 from services.first_pass_evaluator import FirstPassEvaluator
 from services.type_specific_analyzer import TypeSpecificAnalyzer
 
@@ -260,6 +261,42 @@ class DocumentTextExtractBuilderTests(TestCase):
         self.assertTrue(result["extraction_attempted"])
         self.assertFalse(result["extraction_succeeded"])
         self.assertEqual(result["plain_text_snippets"], [])
+
+
+class FinalReportBuilderQualityTests(TestCase):
+    def test_suppresses_noisy_markup_like_structure_preview(self):
+        payload = {
+            "input": {"corp_code": "00126380"},
+            "analysis": {"evaluation_summary": "요약"},
+            "disclosures": {
+                "data": {
+                    "summary": {"total_disclosures": 1, "category_counts": {"periodic_report": 1}},
+                    "normalized_items": [
+                        {
+                            "raw": {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260101"},
+                            "normalized": {"category": "periodic_report", "detected_signals": ["periodic_reporting"]},
+                        }
+                    ],
+                    "document_structure_enrichment": {
+                        "items": [
+                            {
+                                "rcept_no": "1",
+                                "heading_candidates_preview": ["요약 정보"],
+                                "text_extract_preview": {"plain_text_snippets": ['R" VALIGN="TOP" <TE>']},
+                            }
+                        ]
+                    },
+                }
+            },
+            "report_preview": {"summary_line": "요약", "key_points": [], "caution_points": [], "structure_notes": []},
+            "type_specific_analysis": {"items": [{"rcept_no": "1", "matched_type_rule": "periodic_report", "type_specific_facts": [], "type_specific_hints": []}]},
+            "type_specific_summary": {},
+        }
+        report = FinalReportBuilder().build(validate_payload=payload, validate_status_code=200)
+        card = report["disclosure_cards"][0]
+        self.assertEqual(card["heading_preview"], ["요약 정보"])
+        self.assertEqual(card["structure_hint_preview"], [])
+        self.assertGreaterEqual(card["preview_quality"]["structure_hint_preview"]["suppressed_noisy_count"], 1)
 
 
 class DocumentZipInspectorTests(TestCase):
@@ -1168,3 +1205,38 @@ class DartValidationViewTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["status"]["code"], "partial_failure")
         self.assertIn("disclosure_cards", payload)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_report_endpoint_suppresses_noisy_preview_text(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {
+                    "rcept_no": "20260101000001",
+                    "report_nm": "사업보고서",
+                    "rcept_dt": "20260101",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                }
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/api/v1/dart/report", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        card = payload["disclosure_cards"][0]
+        for text in card.get("structure_hint_preview", []):
+            self.assertNotIn("<", text)
+            self.assertNotIn("VALIGN=", text.upper())
+        self.assertIn("preview_quality", card)

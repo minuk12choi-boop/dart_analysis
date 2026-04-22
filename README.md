@@ -96,6 +96,10 @@ python manage.py test apps.dart_analysis
   - `limitations`
   - `status`
 - `disclosure_cards`는 검증된 기존 필드만 사용합니다(rcept_no/report_nm/rcept_dt, 정규화 카테고리, 감지 신호, 타입별 규칙/사실/힌트, 구조 미리보기 등).
+- `disclosure_cards`의 preview 필드는 소비자 가독성을 위해 품질 필터를 적용합니다.
+  - 공백 정규화/길이 제한
+  - 마크업 잔재(`<...>`, `VALIGN="..."` 등)로 판단되는 문자열 억제
+  - 노이즈가 심한 값은 빈 목록으로 반환(대체 문구 생성 없음)
 - 본문 재파싱/새 의미 추론/투자 추천은 수행하지 않습니다.
 
 ## report_preview 블록(사람 친화 미리보기)

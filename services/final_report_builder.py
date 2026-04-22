@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from services.report_preview_quality_filter import ReportPreviewQualityFilter
 
 
 @dataclass(slots=True)
 class FinalReportBuilder:
     card_limit: int = 3
+    preview_quality_filter: ReportPreviewQualityFilter = field(default_factory=ReportPreviewQualityFilter)
 
     def build(self, *, validate_payload: dict[str, Any], validate_status_code: int) -> dict[str, Any]:
         request_block = validate_payload.get("input", {})
@@ -39,6 +42,12 @@ class FinalReportBuilder:
             rcept_no = str(raw.get("rcept_no") or "")
             type_item = type_item_map.get(rcept_no, {})
             enrich_item = enrichment_item_map.get(rcept_no, {})
+            heading_preview, heading_quality = self.preview_quality_filter.filter_values(
+                [str(value) for value in enrich_item.get("heading_candidates_preview", [])[:3]]
+            )
+            structure_hint_preview, structure_quality = self.preview_quality_filter.filter_values(
+                [str(value) for value in enrich_item.get("text_extract_preview", {}).get("plain_text_snippets", [])[:2]]
+            )
             cards.append(
                 {
                     "rcept_no": raw.get("rcept_no"),
@@ -49,8 +58,12 @@ class FinalReportBuilder:
                     "type_specific_matched_rule": type_item.get("matched_type_rule"),
                     "type_specific_facts": type_item.get("type_specific_facts", [])[:3],
                     "type_specific_hints": type_item.get("type_specific_hints", [])[:3],
-                    "heading_preview": enrich_item.get("heading_candidates_preview", [])[:3],
-                    "structure_hint_preview": enrich_item.get("text_extract_preview", {}).get("plain_text_snippets", [])[:2],
+                    "heading_preview": heading_preview,
+                    "structure_hint_preview": structure_hint_preview,
+                    "preview_quality": {
+                        "heading_preview": heading_quality,
+                        "structure_hint_preview": structure_quality,
+                    },
                 }
             )
 
