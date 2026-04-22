@@ -254,6 +254,10 @@ class DartValidationView(View):
                             "corp_code": corp_code,
                         },
                         "resolution": resolution,
+                        "analysis": analysis,
+                        "report_preview": report_preview,
+                        "type_specific_analysis": type_specific_result["type_specific_analysis"],
+                        "type_specific_summary": type_specific_result["type_specific_summary"],
                     },
                     status=502,
                 )

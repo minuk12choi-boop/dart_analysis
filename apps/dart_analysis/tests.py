@@ -685,6 +685,10 @@ class DartValidationViewTests(TestCase):
         payload = response.json()
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "dart_list_fetch_failed")
+        self.assertIn("analysis", payload)
+        self.assertIn("report_preview", payload)
+        self.assertIn("type_specific_analysis", payload)
+        self.assertIn("type_specific_summary", payload)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_success_with_mock(self, mock_fetch_doc):
