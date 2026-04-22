@@ -185,6 +185,22 @@ class DartClientOperationalHardeningTests(TestCase):
         upstream_status = client.snapshot_upstream_status()
         self.assertEqual(upstream_status["last_retry_count"], 1)
 
+    def test_from_env_applies_operational_overrides(self):
+        with patch.dict(
+            os.environ,
+            {
+                "DART_API_KEY": "dummy-key",
+                "DART_TIMEOUT_SECONDS": "7",
+                "DART_MAX_RETRIES": "3",
+                "DART_DISCLOSURE_LIST_CACHE_TTL_SECONDS": "120",
+            },
+            clear=False,
+        ):
+            client = DartClient.from_env()
+        self.assertEqual(client.timeout_seconds, 7.0)
+        self.assertEqual(client.max_retries, 3)
+        self.assertEqual(client.disclosure_list_cache_ttl_seconds, 120)
+
 
 class TypeSpecificAnalyzerTests(TestCase):
     def setUp(self) -> None:
@@ -505,6 +521,11 @@ class DartValidationViewTests(TestCase):
         self.env_patcher = patch.dict(os.environ, {"DART_API_KEY": "test-key"}, clear=False)
         self.env_patcher.start()
         self.addCleanup(self.env_patcher.stop)
+
+    def test_ui_route_exists_and_renders(self):
+        response = self.client.get("/dart/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("입력 후 조회 버튼을 누르면 결과가 표시됩니다.", response.content.decode("utf-8"))
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     @patch("apps.dart_analysis.views.CompanyNameResolver.resolve")
@@ -1240,3 +1261,63 @@ class DartValidationViewTests(TestCase):
             self.assertNotIn("<", text)
             self.assertNotIn("VALIGN=", text.upper())
         self.assertIn("preview_quality", card)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_report_endpoint_card_limit_can_be_overridden_by_env(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 2,
+            "items": [
+                {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260101", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+                {"rcept_no": "2", "report_nm": "분기보고서", "rcept_dt": "20260102", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        with patch.dict(os.environ, {"DART_REPORT_CARD_LIMIT": "1"}, clear=False):
+            response = self.client.get("/api/v1/dart/report", {"corp_code": "00126380"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["disclosure_cards"]), 1)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_ui_route_renders_report_data(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {
+                    "rcept_no": "20260101000001",
+                    "report_nm": "사업보고서",
+                    "rcept_dt": "20260101",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                }
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/dart/", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("DART 공시 리포트 조회", content)
+        self.assertIn("핵심 포인트", content)
+        self.assertIn("사업보고서", content)

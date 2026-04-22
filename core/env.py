@@ -13,3 +13,29 @@ def get_dart_api_key() -> str:
             "실행 전에 환경변수를 설정해 주세요."
         )
     return value
+
+
+def get_env_int(name: str, default: int, *, min_value: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        parsed = int(raw.strip())
+    except ValueError:
+        return default
+    if min_value is not None and parsed < min_value:
+        return default
+    return parsed
+
+
+def get_env_float(name: str, default: float, *, min_value: float | None = None) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        parsed = float(raw.strip())
+    except ValueError:
+        return default
+    if min_value is not None and parsed < min_value:
+        return default
+    return parsed

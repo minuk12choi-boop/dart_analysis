@@ -25,6 +25,19 @@ export DART_API_KEY="YOUR_KEY"
 
 > 보안상 실제 키 값은 로그나 응답에 노출하지 마세요.
 
+### 운영 설정(선택)
+아래 환경변수는 미설정 시 안전한 기본값으로 동작합니다.
+
+```bash
+export DART_TIMEOUT_SECONDS=20
+export DART_MAX_RETRIES=1
+export DART_ENABLE_CACHE=1
+export DART_CORP_CODE_CACHE_TTL_SECONDS=86400
+export DART_DISCLOSURE_LIST_CACHE_TTL_SECONDS=600
+export DART_ORIGINAL_DOCUMENT_CACHE_TTL_SECONDS=600
+export DART_REPORT_CARD_LIMIT=3
+```
+
 ### 3) 개발 서버 실행
 ```bash
 python manage.py migrate

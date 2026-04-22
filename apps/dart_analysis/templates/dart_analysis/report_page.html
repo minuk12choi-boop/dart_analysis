@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DART 공시 리포트 조회</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; line-height: 1.5; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    .muted { color: #666; }
+    .error { color: #b00020; }
+    input { padding: 8px; margin-right: 8px; width: 220px; }
+    button { padding: 8px 12px; }
+    ul { margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>DART 공시 리포트 조회</h1>
+  <p class="muted">회사명 또는 corp_code를 입력해 최종 소비자용 리포트를 확인하세요.</p>
+
+  <form method="get" onsubmit="document.getElementById('loading').style.display='block'">
+    <input type="text" name="company_name" placeholder="회사명 (예: 삼성전자)" value="{{ company_name }}">
+    <input type="text" name="corp_code" placeholder="corp_code (8자리)" value="{{ corp_code }}">
+    <button type="submit">조회</button>
+  </form>
+  <p id="loading" class="muted" style="display:none;">조회 중입니다...</p>
+
+  {% if not query_attempted %}
+    <p class="muted">입력 후 조회 버튼을 누르면 결과가 표시됩니다.</p>
+  {% elif report %}
+    <div class="card">
+      <h2>상태</h2>
+      <p><strong>{{ report.status.code }}</strong> - {{ report.status.message }}</p>
+    </div>
+
+    <div class="card">
+      <h2>요약</h2>
+      <p>{{ report.executive_summary.summary_line|default:"요약 정보가 없습니다." }}</p>
+    </div>
+
+    <div class="card">
+      <h2>핵심 포인트</h2>
+      <ul>
+        {% for item in report.key_findings %}
+          <li>{{ item }}</li>
+        {% empty %}
+          <li class="muted">표시할 항목이 없습니다.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>주의 포인트</h2>
+      <ul>
+        {% for item in report.caution_findings %}
+          <li>{{ item }}</li>
+        {% empty %}
+          <li class="muted">표시할 항목이 없습니다.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>구조 포인트</h2>
+      <ul>
+        {% for item in report.structure_findings %}
+          <li>{{ item }}</li>
+        {% empty %}
+          <li class="muted">표시할 항목이 없습니다.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>공시 카드</h2>
+      {% for card in report.disclosure_cards %}
+        <div class="card">
+          <strong>{{ card.report_nm }}</strong> ({{ card.rcept_dt }}) / {{ card.rcept_no }}
+          <div>카테고리: {{ card.normalized_category }}</div>
+          <div>감지 신호: {{ card.detected_signals|join:", "|default:"없음" }}</div>
+          <div>타입 규칙: {{ card.type_specific_matched_rule|default:"없음" }}</div>
+        </div>
+      {% empty %}
+        <p class="muted">표시할 공시 카드가 없습니다.</p>
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <h2>제한사항</h2>
+      <ul>
+        {% for item in report.limitations %}
+          <li>{{ item }}</li>
+        {% empty %}
+          <li class="muted">제한사항 정보가 없습니다.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    <p class="error">리포트를 불러오지 못했습니다.</p>
+  {% endif %}
+</body>
+</html>

@@ -13,7 +13,7 @@ import json
 import zipfile
 import xml.etree.ElementTree as ET
 
-from core.env import get_dart_api_key
+from core.env import get_dart_api_key, get_env_float, get_env_int
 
 
 class DartClientError(RuntimeError):
@@ -46,7 +46,15 @@ class DartClient:
 
     @classmethod
     def from_env(cls) -> "DartClient":
-        return cls(api_key=get_dart_api_key())
+        return cls(
+            api_key=get_dart_api_key(),
+            timeout_seconds=get_env_float("DART_TIMEOUT_SECONDS", 20.0, min_value=1.0),
+            max_retries=get_env_int("DART_MAX_RETRIES", 1, min_value=0),
+            corp_code_cache_ttl_seconds=get_env_int("DART_CORP_CODE_CACHE_TTL_SECONDS", 60 * 60 * 24, min_value=1),
+            disclosure_list_cache_ttl_seconds=get_env_int("DART_DISCLOSURE_LIST_CACHE_TTL_SECONDS", 60 * 10, min_value=1),
+            original_document_cache_ttl_seconds=get_env_int("DART_ORIGINAL_DOCUMENT_CACHE_TTL_SECONDS", 60 * 10, min_value=1),
+            enable_cache=get_env_int("DART_ENABLE_CACHE", 1, min_value=0) != 0,
+        )
 
     def readiness_payload(self) -> dict[str, Any]:
         return {
