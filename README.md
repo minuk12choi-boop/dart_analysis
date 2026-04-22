@@ -45,7 +45,12 @@ curl "http://127.0.0.1:8000/api/v1/dart/validate?company_name=삼성전자"
 curl "http://127.0.0.1:8000/api/v1/dart/validate?corp_code=00126380"
 ```
 
-### 예시 3: rcept_no 기반 원문 접근 메타데이터 조회
+### 예시 3: corp_code 기반 최종 소비자용 보고 JSON 조회
+```bash
+curl "http://127.0.0.1:8000/api/v1/dart/report?corp_code=00126380"
+```
+
+### 예시 4: rcept_no 기반 원문 접근 메타데이터 조회
 ```bash
 curl "http://127.0.0.1:8000/api/v1/dart/document?rcept_no=20260101000001"
 ```
@@ -77,6 +82,21 @@ python manage.py test apps.dart_analysis
 - `analysis.document_structure_signals`는 구조 수준 집계만 제공하며, heading 텍스트 의미 해석/비즈니스 결론은 포함하지 않습니다.
 - `analysis.document_structure_hints`는 `document_structure_signals`를 기반으로 만든 정보성 플래그 집합입니다(`structured_document_detected` 등).
 - `analysis.document_structure_hints`는 구조 존재 여부를 표시할 뿐, 의미 해석/사업 결론/투자 판단을 제공하지 않습니다.
+
+## report 엔드포인트(최종 소비자용 JSON)
+- `/api/v1/dart/report`는 내부적으로 validate 구조 데이터를 재사용해 소비자용 블록으로 재구성합니다.
+- 주요 블록:
+  - `request`
+  - `report_meta`
+  - `executive_summary`
+  - `key_findings`
+  - `caution_findings`
+  - `structure_findings`
+  - `disclosure_cards`(기본 최대 3건)
+  - `limitations`
+  - `status`
+- `disclosure_cards`는 검증된 기존 필드만 사용합니다(rcept_no/report_nm/rcept_dt, 정규화 카테고리, 감지 신호, 타입별 규칙/사실/힌트, 구조 미리보기 등).
+- 본문 재파싱/새 의미 추론/투자 추천은 수행하지 않습니다.
 
 ## report_preview 블록(사람 친화 미리보기)
 - `/api/v1/dart/validate`는 기존 기계 친화 블록과 별도로 `report_preview`를 제공합니다.

@@ -1089,3 +1089,82 @@ class DartValidationViewTests(TestCase):
         item = payload["type_specific_analysis"]["items"][0]
         self.assertEqual(item["status"], "not_applicable")
         self.assertIsNone(item["matched_type_rule"])
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_report_endpoint_response_shape(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {
+                    "rcept_no": "20260101000001",
+                    "report_nm": "사업보고서",
+                    "rcept_dt": "20260101",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                }
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "20260101000001",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/api/v1/dart/report", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("request", payload)
+        self.assertIn("report_meta", payload)
+        self.assertIn("executive_summary", payload)
+        self.assertIn("key_findings", payload)
+        self.assertIn("caution_findings", payload)
+        self.assertIn("structure_findings", payload)
+        self.assertIn("disclosure_cards", payload)
+        self.assertIn("limitations", payload)
+        self.assertIn("status", payload)
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
+        self.assertNotIn("investment_recommendation", payload)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_report_endpoint_disclosure_card_limit(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 4,
+            "items": [
+                {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260101", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+                {"rcept_no": "2", "report_nm": "분기보고서", "rcept_dt": "20260102", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+                {"rcept_no": "3", "report_nm": "유상증자 결정", "rcept_dt": "20260103", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+                {"rcept_no": "4", "report_nm": "최대주주 변경", "rcept_dt": "20260104", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+
+        response = self.client.get("/api/v1/dart/report", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["disclosure_cards"]), 3)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_report_endpoint_partial_failure_tolerance(self, mock_fetch):
+        mock_fetch.side_effect = DartAPIRequestError("DART API 네트워크 오류: 테스트")
+
+        response = self.client.get("/api/v1/dart/report", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"]["code"], "partial_failure")
+        self.assertIn("disclosure_cards", payload)

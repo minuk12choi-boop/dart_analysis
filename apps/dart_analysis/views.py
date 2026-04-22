@@ -12,6 +12,7 @@ from services.company_resolver import CompanyNameResolver
 from services.disclosure_normalizer import DisclosureNormalizer
 from services.first_pass_evaluator import FirstPassEvaluator
 from services.type_specific_analyzer import TypeSpecificAnalyzer
+from services.final_report_builder import FinalReportBuilder
 from services.document_heading_candidates_builder import DocumentHeadingCandidatesBuilder
 from services.document_text_extract_builder import DocumentTextExtractBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
@@ -289,6 +290,31 @@ class DartValidationView(View):
                 "cache_status": client.snapshot_cache_status(),
             }
         )
+
+    get = dispatch
+    post = dispatch
+
+
+class DartReportView(View):
+    http_method_names = ["get", "post"]
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        validate_response = DartValidationView().dispatch(request, *args, **kwargs)
+        try:
+            validate_payload = json.loads(validate_response.content.decode("utf-8"))
+        except json.JSONDecodeError:
+            validate_payload = {"ok": False, "error": {"code": "invalid_validate_payload"}}
+
+        report_payload = FinalReportBuilder(card_limit=3).build(
+            validate_payload=validate_payload,
+            validate_status_code=validate_response.status_code,
+        )
+
+        status_code = validate_response.status_code
+        if report_payload.get("status", {}).get("code") in {"ok", "partial_failure"}:
+            status_code = 200
+
+        return JsonResponse(report_payload, status=status_code)
 
     get = dispatch
     post = dispatch
