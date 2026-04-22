@@ -360,6 +360,60 @@ class InvestmentEngineUnitTests(TestCase):
         self.assertEqual(result["aggregate_signal_assessment"]["considered_disclosure_count"], 2)
         self.assertGreaterEqual(len(result["event_assessment"]["items"]), 2)
 
+    def test_market_data_provider_kis_missing_credentials(self):
+        with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "", "KIS_APP_SECRET": ""}, clear=False):
+            status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="005930")
+        self.assertEqual(status["provider"], "kis")
+        self.assertFalse(status["configured"])
+        self.assertTrue(status["insufficient_market_data"])
+        self.assertIn("missing_kis_credentials", status["errors"])
+
+    def test_market_data_provider_kis_stock_code_missing(self):
+        with patch.dict(
+            os.environ,
+            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "a", "KIS_APP_SECRET": "b"},
+            clear=False,
+        ):
+            status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="")
+        self.assertEqual(status["provider"], "kis")
+        self.assertTrue(status["insufficient_market_data"])
+        self.assertIn("stock_code", status["unavailable_fields"])
+
+    @patch("services.market_data_provider.urlopen")
+    def test_market_data_provider_kis_configured_with_mock(self, mock_urlopen):
+        token_response = MagicMock()
+        token_response.read.return_value = b'{\"access_token\":\"token-value\"}'
+        token_ctx = MagicMock()
+        token_ctx.__enter__.return_value = token_response
+        token_ctx.__exit__.return_value = False
+
+        price_response = MagicMock()
+        price_response.read.return_value = b'{\"output\":{\"stck_prpr\":\"71000\",\"acml_vol\":\"1234567\"}}'
+        price_ctx = MagicMock()
+        price_ctx.__enter__.return_value = price_response
+        price_ctx.__exit__.return_value = False
+
+        daily_response = MagicMock()
+        daily_response.read.return_value = b'{\"output2\":[{\"stck_hgpr\":\"73000\",\"stck_lwpr\":\"68000\",\"stck_clpr\":\"71000\",\"acml_vol\":\"1000000\"},{\"stck_hgpr\":\"72000\",\"stck_lwpr\":\"69000\",\"stck_clpr\":\"70500\",\"acml_vol\":\"900000\"},{\"stck_hgpr\":\"71500\",\"stck_lwpr\":\"70000\",\"stck_clpr\":\"71200\",\"acml_vol\":\"850000\"},{\"stck_hgpr\":\"71800\",\"stck_lwpr\":\"70200\",\"stck_clpr\":\"70900\",\"acml_vol\":\"870000\"},{\"stck_hgpr\":\"71900\",\"stck_lwpr\":\"70100\",\"stck_clpr\":\"70800\",\"acml_vol\":\"820000\"}]}'  # noqa: E501
+        daily_ctx = MagicMock()
+        daily_ctx.__enter__.return_value = daily_response
+        daily_ctx.__exit__.return_value = False
+
+        mock_urlopen.side_effect = [token_ctx, price_ctx, daily_ctx]
+
+        with patch.dict(
+            os.environ,
+            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "a", "KIS_APP_SECRET": "b"},
+            clear=False,
+        ):
+            status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="005930")
+
+        self.assertEqual(status["provider"], "kis")
+        self.assertTrue(status["configured"])
+        self.assertTrue(status["live_fetch_succeeded"])
+        self.assertFalse(status["insufficient_market_data"])
+        self.assertIsNotNone(status["data"]["current_price"])
+
 
 class DocumentZipInspectorTests(TestCase):
     def setUp(self) -> None:
@@ -1501,6 +1555,36 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["market_data_status"]["insufficient_market_data"], False)
         self.assertEqual(payload["price_assessment"]["price_assessment_status"], "estimated_with_market_data")
         self.assertIsNotNone(payload["price_assessment"]["entry_zone"])
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_investment_report_kis_with_missing_stock_code_stays_conservative(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20260101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260101", "corp_code": "00126380", "corp_name": "테스트", "stock_code": ""},
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+        with patch.dict(
+            os.environ,
+            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "a", "KIS_APP_SECRET": "b"},
+            clear=False,
+        ):
+            response = self.client.get("/api/v1/dart/investment-report", {"corp_code": "00126380"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["market_data_status"]["provider"], "kis")
+        self.assertTrue(payload["market_data_status"]["insufficient_market_data"])
+        self.assertEqual(payload["price_assessment"]["price_assessment_status"], "insufficient_market_data")
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")

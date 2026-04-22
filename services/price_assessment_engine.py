@@ -54,6 +54,14 @@ class PriceAssessmentEngine:
             }
 
         band = recent_high - recent_low
+        volatility_proxy = data.get("volatility_proxy")
+        adjustment = 1.0
+        pricing_method = "recent_range_based_heuristic"
+        if isinstance(volatility_proxy, (int, float)) and volatility_proxy > 0:
+            pricing_method = "volatility_aware_recent_range_heuristic"
+            adjustment = min(1.3, max(0.7, 1.0 + (volatility_proxy - 0.03)))
+
+        band = band * adjustment
         entry_low = round(recent_low + band * 0.1, 2)
         entry_high = round(recent_low + band * 0.3, 2)
         exit_low = round(recent_low + band * 0.7, 2)
@@ -68,7 +76,7 @@ class PriceAssessmentEngine:
 
         return {
             "price_assessment_status": "estimated_with_market_data",
-            "pricing_method": "recent_range_based_heuristic",
+            "pricing_method": pricing_method,
             "entry_zone": {
                 "min": entry_low,
                 "max": entry_high,

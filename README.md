@@ -154,6 +154,10 @@ python manage.py test apps.dart_analysis
   - `price_assessment.price_assessment_status: insufficient_market_data`
   - `entry_zone/exit_zone/risk_cut_zone`는 채우지 않습니다(임의 추정 금지).
 - 이 엔드포인트는 투자판단 보조용이며 확정적 매수/매도 추천을 제공하지 않습니다.
+- KIS 연동이 설정된 경우(`DART_MARKET_DATA_PROVIDER=kis`):
+  - `market_data_status.provider`는 `kis`로 반환됩니다.
+  - `configured`, `live_fetch_succeeded`, `available_fields`, `unavailable_fields`를 함께 반환합니다.
+  - 국내 6자리 종목코드(`stock_code`)가 없으면 조회를 강행하지 않고 보수적 부족 상태를 반환합니다.
 
 ## report_preview 블록(사람 친화 미리보기)
 - `/api/v1/dart/validate`는 기존 기계 친화 블록과 별도로 `report_preview`를 제공합니다.
@@ -216,6 +220,13 @@ python manage.py test apps.dart_analysis
   - `DART_MARKET_DATA_PROVIDER`: 시장 데이터 공급자 이름(`none` 또는 `static`, 기본 `none`)
   - `DART_MARKET_PRICE_CURRENT`, `DART_MARKET_PRICE_RECENT_LOW`, `DART_MARKET_PRICE_RECENT_HIGH`
   - `DART_MARKET_RECENT_VOLUME`, `DART_MARKET_VOLATILITY_PROXY`, `DART_MARKET_CAP`, `DART_MARKET_SHARE_COUNT`
+  - KIS 연동(국내 KOSPI/KOSDAQ):
+    - `DART_MARKET_DATA_PROVIDER=kis`
+    - `KIS_APP_KEY`, `KIS_APP_SECRET`
+    - `KIS_BASE_URL` (기본: `https://openapi.koreainvestment.com:9443`)
+    - `KIS_TIMEOUT_SECONDS` (기본 10), `KIS_MAX_RETRIES` (기본 1)
+    - `KIS_TOKEN_CACHE_TTL_SECONDS` (기본 3000), `KIS_SNAPSHOT_CACHE_TTL_SECONDS` (기본 60)
+  - KIS 미설정/조회 실패 시에는 `market_data_status.insufficient_market_data=true`와 함께 가격 구간을 비워 반환합니다.
 
 
 ## 원문 접근 메타데이터

@@ -50,13 +50,20 @@
 
       <div class="card">
         <h2>시장 데이터 상태</h2>
+        <div>공급자: {{ report.market_data_status.provider|default:"없음" }}</div>
+        <div>설정 여부: {% if report.market_data_status.configured %}설정됨{% else %}미설정{% endif %}</div>
+        <div>실시간 조회 성공: {% if report.market_data_status.live_fetch_succeeded %}성공{% else %}실패/미수행{% endif %}</div>
         <div>상태: {% if report.market_data_status.insufficient_market_data %}insufficient_market_data{% else %}available{% endif %}</div>
         <div>안내: {{ report.market_data_status.message|default:"시장 데이터 상태 정보가 없습니다." }}</div>
+        <div>미가용 필드: {{ report.market_data_status.unavailable_fields|join:", "|default:"없음" }}</div>
       </div>
 
       <div class="card">
         <h2>가격 판단 상태</h2>
         <div>price_assessment_status: <strong>{{ report.price_assessment.price_assessment_status|default:"unknown" }}</strong></div>
+        {% if report.price_assessment.price_assessment_status == "insufficient_market_data" %}
+          <div class="muted">시장 데이터가 부족해 가격 구간은 의도적으로 비워 둡니다.</div>
+        {% endif %}
         <div>entry_zone: {{ report.price_assessment.entry_zone|default:"없음" }}</div>
         <div>exit_zone: {{ report.price_assessment.exit_zone|default:"없음" }}</div>
         <div>risk_cut_zone: {{ report.price_assessment.risk_cut_zone|default:"없음" }}</div>
