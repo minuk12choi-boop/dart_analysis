@@ -13,6 +13,7 @@ from services.disclosure_normalizer import DisclosureNormalizer
 from services.first_pass_evaluator import FirstPassEvaluator
 from services.type_specific_analyzer import TypeSpecificAnalyzer
 from services.document_heading_candidates_builder import DocumentHeadingCandidatesBuilder
+from services.document_text_extract_builder import DocumentTextExtractBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.document_xml_inspector import DocumentXMLInspectionError, DocumentXMLInspector
@@ -322,6 +323,13 @@ def _build_document_structure_enrichment(
             "heading_candidates_available": False,
             "heading_candidate_count": 0,
             "heading_candidates_preview": [],
+            "text_extract_preview": {
+                "available": False,
+                "plain_text_snippets": [],
+                "numeric_like_tokens": [],
+                "date_like_tokens": [],
+                "ratio_like_tokens": [],
+            },
             "section_like_tags_exist": False,
             "table_like_structure_present": False,
             "has_cover_like_structure": False,
@@ -374,6 +382,18 @@ def _build_document_structure_enrichment(
                 for candidate in heading_candidates.get("heading_candidates", [])[:5]
                 if isinstance(candidate, dict) and candidate.get("text")
             ]
+
+        text_extract = DocumentTextExtractBuilder().build(
+            markup_fallback_inspection=markup_fallback,
+            document_heading_candidates=heading_candidates,
+        )
+        result["text_extract_preview"] = {
+            "available": bool(text_extract.get("extraction_succeeded")),
+            "plain_text_snippets": text_extract.get("plain_text_snippets", [])[:2],
+            "numeric_like_tokens": text_extract.get("token_candidates", {}).get("numeric_like", [])[:5],
+            "date_like_tokens": text_extract.get("token_candidates", {}).get("date_like", [])[:5],
+            "ratio_like_tokens": text_extract.get("token_candidates", {}).get("ratio_like", [])[:5],
+        }
 
         result["status"] = "enriched" if result["document_outline_available"] or result["heading_candidates_available"] else "no_structure_signal"
         enriched_items.append(result)
@@ -636,6 +656,7 @@ class DartOriginalDocumentView(View):
                     "markup_fallback_inspection": None,
                     "document_outline": None,
                     "document_heading_candidates": None,
+                    "document_text_extract": None,
                 },
                 status=502,
             )
@@ -667,6 +688,7 @@ class DartOriginalDocumentView(View):
                     "markup_fallback_inspection": None,
                     "document_outline": None,
                     "document_heading_candidates": None,
+                    "document_text_extract": None,
                 },
                 status=502,
             )
@@ -693,6 +715,12 @@ class DartOriginalDocumentView(View):
                     "document_heading_candidates": DocumentHeadingCandidatesBuilder().build(
                         getattr(exc, "markup_fallback_inspection", None)
                     ),
+                    "document_text_extract": DocumentTextExtractBuilder().build(
+                        markup_fallback_inspection=getattr(exc, "markup_fallback_inspection", None),
+                        document_heading_candidates=DocumentHeadingCandidatesBuilder().build(
+                            getattr(exc, "markup_fallback_inspection", None)
+                        ),
+                    ),
                 },
                 status=502,
             )
@@ -702,6 +730,10 @@ class DartOriginalDocumentView(View):
         markup_fallback_inspection = xml_inspection.get("markup_fallback_inspection")
         document_outline = DocumentOutlineBuilder().build(markup_fallback_inspection)
         document_heading_candidates = DocumentHeadingCandidatesBuilder().build(markup_fallback_inspection)
+        document_text_extract = DocumentTextExtractBuilder().build(
+            markup_fallback_inspection=markup_fallback_inspection,
+            document_heading_candidates=document_heading_candidates,
+        )
 
         return JsonResponse(
             {
@@ -724,6 +756,7 @@ class DartOriginalDocumentView(View):
                 "markup_fallback_inspection": markup_fallback_inspection,
                 "document_outline": document_outline,
                 "document_heading_candidates": document_heading_candidates,
+                "document_text_extract": document_text_extract,
                 "notes": [
                     "현재 단계는 XML 구조 메타데이터(root tag/최상위 child)까지만 제공합니다.",
                     "본문 텍스트/섹션 의미 해석은 아직 구현하지 않았습니다.",

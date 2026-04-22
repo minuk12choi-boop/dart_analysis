@@ -111,6 +111,8 @@ python manage.py test apps.dart_analysis
 - `/api/v1/dart/validate`의 `disclosures.data.document_structure_enrichment`는 공시 목록 중 제한된 건수(현재 기본 1건)에 대해 문서 구조 신호를 추가로 제공합니다.
 - 제공 정보는 `document_outline`/`document_heading_candidates`에서 파생한 구조 신호만 포함하며, 의미 해석/비즈니스 라벨은 포함하지 않습니다.
 - 문서 fetch/검사 실패 시에도 validate 전체 응답은 유지되며, 개별 항목에 `status`, `error`로 실패 상태를 반환합니다.
+- `document_structure_enrichment.items[*].text_extract_preview`는 같은 제한 건수 범위에서 추출한 안전한 텍스트 미리보기를 제공합니다.
+- `text_extract_preview`는 짧은 텍스트 조각/토큰만 포함하며, 본문 의미 해석이나 투자 판단은 제공하지 않습니다.
 
 
 ## 원문 접근 메타데이터
@@ -126,6 +128,13 @@ python manage.py test apps.dart_analysis
 - `document_outline`는 구조 정보만 다루며, 본문 의미 해석/비즈니스 라벨/투자 판단은 포함하지 않습니다.
 - `document_heading_candidates`는 markup 기반으로 수집된 heading-like 태그(`title`, `cover-title`, `document-name` 등)에서 raw 텍스트 후보만 보수적으로 추출한 블록입니다.
 - `document_heading_candidates`는 공백 정규화/빈 문자열 제거만 수행하며, 요약/의미 해석/비즈니스 라벨링은 수행하지 않습니다.
+- `document_text_extract`는 heading 후보와 markup fallback excerpt를 기반으로 한 안전한 최소 텍스트 추출 블록입니다.
+- `document_text_extract` 범위:
+  - 짧은 heading 텍스트 후보
+  - 짧은 plain-text snippet
+  - table 태그 존재 시 tag 기반 label 후보
+  - snippet에서 직접 매칭된 숫자/날짜/비율 토큰 후보
+- `document_text_extract`는 `extraction_attempted`, `extraction_succeeded`, `extracted_from`, `limitations`를 제공하며, 추출이 안전하지 않으면 비성공 구조로 반환됩니다.
 - 본문 텍스트 추출/섹션 의미 해석은 아직 구현하지 않았습니다.
 
 

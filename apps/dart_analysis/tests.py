@@ -12,6 +12,7 @@ from services.document_xml_inspector import DocumentXMLInspectionError, Document
 from services.document_heading_candidates_builder import DocumentHeadingCandidatesBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
+from services.document_text_extract_builder import DocumentTextExtractBuilder
 from services.first_pass_evaluator import FirstPassEvaluator
 from services.type_specific_analyzer import TypeSpecificAnalyzer
 
@@ -163,6 +164,35 @@ class TypeSpecificAnalyzerTests(TestCase):
         item = result["type_specific_analysis"]["items"][0]
         self.assertEqual(item["status"], "not_applicable")
         self.assertIsNone(item["matched_type_rule"])
+
+
+class DocumentTextExtractBuilderTests(TestCase):
+    def setUp(self) -> None:
+        self.builder = DocumentTextExtractBuilder()
+
+    def test_text_extract_success_from_heading_and_markup_excerpt(self):
+        result = self.builder.build(
+            markup_fallback_inspection={
+                "raw_excerpt_near_error": "매출 1,234 및 비율 12.3% / 기준일 2026-01-31",
+                "first_opening_tags": ["document", "body", "table", "tr", "td"],
+            },
+            document_heading_candidates={
+                "extraction_succeeded": True,
+                "heading_candidates": [{"text": "요약 정보"}, {"text": "재무 상태"}],
+            },
+        )
+        self.assertTrue(result["extraction_attempted"])
+        self.assertTrue(result["extraction_succeeded"])
+        self.assertIn("요약 정보", result["heading_text_candidates"])
+        self.assertIn("1,234", result["token_candidates"]["numeric_like"])
+        self.assertIn("2026-01-31", result["token_candidates"]["date_like"])
+        self.assertIn("12.3%", result["token_candidates"]["ratio_like"])
+
+    def test_text_extract_failure_when_no_safe_source(self):
+        result = self.builder.build(markup_fallback_inspection=None, document_heading_candidates=None)
+        self.assertTrue(result["extraction_attempted"])
+        self.assertFalse(result["extraction_succeeded"])
+        self.assertEqual(result["plain_text_snippets"], [])
 
 
 class DocumentZipInspectorTests(TestCase):
@@ -559,6 +589,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn(item["status"], {"enriched", "no_structure_signal"})
         self.assertIn("heading_candidate_count", item)
         self.assertIn("heading_candidates_preview", item)
+        self.assertIn("text_extract_preview", item)
+        self.assertIn("plain_text_snippets", item["text_extract_preview"])
         self.assertNotIn("semantic_labels", item)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
@@ -590,6 +622,8 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(enrichment["attempted_item_count"], 1)
         self.assertEqual(enrichment["items"][0]["status"], "document_fetch_failed")
         self.assertIn("error", enrichment["items"][0])
+        self.assertIn("text_extract_preview", enrichment["items"][0])
+        self.assertFalse(enrichment["items"][0]["text_extract_preview"]["available"])
         signals = payload["analysis"]["document_structure_signals"]
         hints = payload["analysis"]["document_structure_hints"]
         self.assertTrue(signals["available"])
@@ -674,11 +708,14 @@ class DartValidationViewTests(TestCase):
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
         self.assertIn("document_heading_candidates", payload)
+        self.assertIn("document_text_extract", payload)
         self.assertIsNone(payload["xml_parse_diagnostics"])
         self.assertIsNone(payload["xml_fallback_inspection"])
         self.assertIsNone(payload["markup_fallback_inspection"])
         self.assertIsNone(payload["document_outline"])
         self.assertIsNone(payload["document_heading_candidates"])
+        self.assertTrue(payload["document_text_extract"]["extraction_attempted"])
+        self.assertNotIn("semantic_labels", payload["document_text_extract"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_failure_returns_structured_error(self, mock_fetch_doc):
@@ -696,6 +733,7 @@ class DartValidationViewTests(TestCase):
         self.assertIsNone(payload["markup_fallback_inspection"])
         self.assertIsNone(payload["document_outline"])
         self.assertIsNone(payload["document_heading_candidates"])
+        self.assertIsNone(payload["document_text_extract"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_zip_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -718,6 +756,7 @@ class DartValidationViewTests(TestCase):
         self.assertIsNone(payload["markup_fallback_inspection"])
         self.assertIsNone(payload["document_outline"])
         self.assertIsNone(payload["document_heading_candidates"])
+        self.assertIsNone(payload["document_text_extract"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_fallback_success_returns_structured_response(self, mock_fetch_doc):
@@ -767,6 +806,7 @@ class DartValidationViewTests(TestCase):
         self.assertIn("markup_fallback_inspection", payload)
         self.assertIn("document_outline", payload)
         self.assertIn("document_heading_candidates", payload)
+        self.assertIn("document_text_extract", payload)
         self.assertFalse(payload["xml_fallback_inspection"]["fallback_parsing_succeeded"])
         self.assertTrue(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
         self.assertTrue(payload["document_outline"]["outline_available"])
@@ -774,6 +814,8 @@ class DartValidationViewTests(TestCase):
         self.assertNotIn("semantic_sections", payload["document_outline"])
         self.assertTrue(payload["document_heading_candidates"]["extraction_attempted"])
         self.assertTrue(payload["document_heading_candidates"]["extraction_succeeded"])
+        self.assertTrue(payload["document_text_extract"]["extraction_succeeded"])
+        self.assertNotIn("semantic_labels", payload["document_text_extract"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_heading_candidates_extraction_returns_raw_candidates(self, mock_fetch_doc):
@@ -788,6 +830,7 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertIn("document_heading_candidates", payload)
+        self.assertIn("document_text_extract", payload)
         heading_block = payload["document_heading_candidates"]
         self.assertTrue(heading_block["extraction_attempted"])
         self.assertTrue(heading_block["extraction_succeeded"])
@@ -795,6 +838,7 @@ class DartValidationViewTests(TestCase):
         self.assertGreaterEqual(heading_block["deduplicated_heading_candidate_count"], 2)
         self.assertIn("title", heading_block["heading_like_tag_names_used"])
         self.assertNotIn("semantic_labels", heading_block)
+        self.assertIn("plain_text_snippets", payload["document_text_extract"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_xml_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -833,6 +877,8 @@ class DartValidationViewTests(TestCase):
         self.assertFalse(payload["markup_fallback_inspection"]["markup_fallback_succeeded"])
         self.assertFalse(payload["document_outline"]["outline_available"])
         self.assertFalse(payload["document_heading_candidates"]["extraction_succeeded"])
+        self.assertTrue(payload["document_text_extract"]["extraction_attempted"])
+        self.assertNotIn("semantic_labels", payload["document_text_extract"])
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_response_shape_is_preserved(self, mock_fetch):
