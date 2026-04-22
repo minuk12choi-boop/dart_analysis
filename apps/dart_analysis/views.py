@@ -111,6 +111,8 @@ class DartValidationView(View):
                             "company_name": company_name,
                             "corp_code": corp_code,
                         },
+                        "upstream_status": client.snapshot_upstream_status(),
+                        "cache_status": client.snapshot_cache_status(),
                     },
                     status=502,
                 )
@@ -258,6 +260,8 @@ class DartValidationView(View):
                         "report_preview": report_preview,
                         "type_specific_analysis": type_specific_result["type_specific_analysis"],
                         "type_specific_summary": type_specific_result["type_specific_summary"],
+                        "upstream_status": client.snapshot_upstream_status(),
+                        "cache_status": client.snapshot_cache_status(),
                     },
                     status=502,
                 )
@@ -281,6 +285,8 @@ class DartValidationView(View):
                 "report_preview": report_preview,
                 "type_specific_analysis": type_specific_result["type_specific_analysis"],
                 "type_specific_summary": type_specific_result["type_specific_summary"],
+                "upstream_status": client.snapshot_upstream_status(),
+                "cache_status": client.snapshot_cache_status(),
             }
         )
 
@@ -661,6 +667,8 @@ class DartOriginalDocumentView(View):
                     "document_outline": None,
                     "document_heading_candidates": None,
                     "document_text_extract": None,
+                    "upstream_status": client.snapshot_upstream_status(),
+                    "cache_status": client.snapshot_cache_status(),
                 },
                 status=502,
             )
@@ -693,6 +701,8 @@ class DartOriginalDocumentView(View):
                     "document_outline": None,
                     "document_heading_candidates": None,
                     "document_text_extract": None,
+                    "upstream_status": client.snapshot_upstream_status(),
+                    "cache_status": client.snapshot_cache_status(),
                 },
                 status=502,
             )
@@ -725,6 +735,8 @@ class DartOriginalDocumentView(View):
                             getattr(exc, "markup_fallback_inspection", None)
                         ),
                     ),
+                    "upstream_status": client.snapshot_upstream_status(),
+                    "cache_status": client.snapshot_cache_status(),
                 },
                 status=502,
             )
@@ -761,6 +773,8 @@ class DartOriginalDocumentView(View):
                 "document_outline": document_outline,
                 "document_heading_candidates": document_heading_candidates,
                 "document_text_extract": document_text_extract,
+                "upstream_status": client.snapshot_upstream_status(),
+                "cache_status": client.snapshot_cache_status(),
                 "notes": [
                     "현재 단계는 XML 구조 메타데이터(root tag/최상위 child)까지만 제공합니다.",
                     "본문 텍스트/섹션 의미 해석은 아직 구현하지 않았습니다.",

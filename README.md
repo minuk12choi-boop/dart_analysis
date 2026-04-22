@@ -114,6 +114,18 @@ python manage.py test apps.dart_analysis
 - `document_structure_enrichment.items[*].text_extract_preview`는 같은 제한 건수 범위에서 추출한 안전한 텍스트 미리보기를 제공합니다.
 - `text_extract_preview`는 짧은 텍스트 조각/토큰만 포함하며, 본문 의미 해석이나 투자 판단은 제공하지 않습니다.
 
+## 운영 안정화(업스트림 접근)
+- `DartClient`는 인-프로세스 로컬 캐시를 사용합니다(기본 활성화).
+  - corpCode 조회: 기본 TTL 24시간
+  - 공시 목록 조회: 기본 TTL 10분(종목/조회창/날짜 기준 키)
+  - 원문 문서 조회: 기본 TTL 10분(`rcept_no` 기준 키)
+- 업스트림 요청은 보수적 타임아웃/재시도 설정을 사용합니다.
+  - 기본 타임아웃: 20초
+  - 기본 재시도: 1회(일부 재시도 가능 오류 코드/네트워크 오류)
+- `/api/v1/dart/validate`, `/api/v1/dart/document`는 `upstream_status`, `cache_status`를 포함해
+  최근 업스트림 시도 상태/캐시 히트·미스·쓰기 상태를 기계적으로 확인할 수 있습니다.
+- 업스트림 실패 시에도 가능한 범위에서 구조화된 상태 블록을 유지해 진단 가능성을 높였습니다.
+
 
 ## 원문 접근 메타데이터
 - `/api/v1/dart/document`는 `rcept_no` 기준으로 `document.xml` 접근을 시도합니다.

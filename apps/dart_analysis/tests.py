@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
+from urllib.error import URLError
+from unittest.mock import MagicMock, patch
 
 from django.test import Client, TestCase
 
@@ -116,6 +117,72 @@ class DartClientDocumentAccessTests(TestCase):
         client = DartClient(api_key="dummy")
         url = client.build_viewer_url("20260101000001")
         self.assertEqual(url, "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260101000001")
+
+
+class DartClientOperationalHardeningTests(TestCase):
+    def setUp(self) -> None:
+        DartClient.clear_cache()
+
+    def test_disclosure_list_cache_hit(self):
+        client = DartClient(api_key="dummy")
+        payload = {
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "list": [
+                {
+                    "rcept_no": "1",
+                    "report_nm": "사업보고서",
+                    "rcept_dt": "20260101",
+                    "corp_code": "00126380",
+                    "corp_name": "테스트",
+                    "stock_code": "005930",
+                }
+            ],
+        }
+        with patch.object(DartClient, "_request_json", return_value=payload) as mock_request_json:
+            first = client.fetch_disclosure_list(corp_code="00126380")
+            second = client.fetch_disclosure_list(corp_code="00126380")
+
+        self.assertEqual(first["total_count"], 1)
+        self.assertEqual(second["total_count"], 1)
+        self.assertEqual(mock_request_json.call_count, 1)
+        cache_status = client.snapshot_cache_status()
+        self.assertGreaterEqual(cache_status["hits"], 1)
+
+    def test_original_document_cache_hit(self):
+        client = DartClient(api_key="dummy")
+        with patch.object(
+            DartClient,
+            "_request_bytes_with_meta",
+            return_value=(b"zip-binary", {"content_type": "application/zip"}),
+        ) as mock_request:
+            first = client.fetch_original_document_payload(rcept_no="20260101000001")
+            second = client.fetch_original_document_payload(rcept_no="20260101000001")
+
+        self.assertEqual(first["content"], b"zip-binary")
+        self.assertEqual(second["content"], b"zip-binary")
+        self.assertEqual(mock_request.call_count, 1)
+
+    def test_retry_then_success_updates_upstream_status(self):
+        client = DartClient(api_key="dummy", max_retries=1)
+        success_response = MagicMock()
+        success_response.headers.get.return_value = "application/json"
+        success_response.read.return_value = b'{"status":"000","list":[]}'
+        success_context = MagicMock()
+        success_context.__enter__.return_value = success_response
+        success_context.__exit__.return_value = False
+
+        with patch(
+            "clients.dart_client.urlopen",
+            side_effect=[URLError("일시적 오류"), success_context],
+        ):
+            raw, meta = client._request_bytes_with_meta("/list.json", {"a": "b"})
+
+        self.assertEqual(raw, b'{"status":"000","list":[]}')
+        self.assertEqual(meta["content_type"], "application/json")
+        upstream_status = client.snapshot_upstream_status()
+        self.assertEqual(upstream_status["last_retry_count"], 1)
 
 
 class TypeSpecificAnalyzerTests(TestCase):
@@ -519,6 +586,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn("report_preview", payload)
         self.assertIn("type_specific_analysis", payload)
         self.assertIn("type_specific_summary", payload)
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
         self.assertIn("document_structure_enrichment", payload["disclosures"]["data"])
         mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
 
@@ -579,6 +648,8 @@ class DartValidationViewTests(TestCase):
         self.assertNotIn("investment_opinion", preview)
         self.assertIn("type_specific_analysis", payload)
         self.assertIn("type_specific_summary", payload)
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
         type_item = payload["type_specific_analysis"]["items"][0]
         self.assertIn("matched_type_rule", type_item)
         self.assertIn("type_specific_facts", type_item)
@@ -641,6 +712,8 @@ class DartValidationViewTests(TestCase):
         self.assertNotIn("investment_recommendation", preview)
         self.assertIn("type_specific_analysis", payload)
         self.assertIn("type_specific_summary", payload)
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
         self.assertEqual(payload["type_specific_analysis"]["items"][0]["status"], "supported")
 
     def test_resolver_does_not_guess_non_exact_match(self):
@@ -689,6 +762,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn("report_preview", payload)
         self.assertIn("type_specific_analysis", payload)
         self.assertIn("type_specific_summary", payload)
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_fetch_success_with_mock(self, mock_fetch_doc):
@@ -713,6 +788,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn("document_outline", payload)
         self.assertIn("document_heading_candidates", payload)
         self.assertIn("document_text_extract", payload)
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
         self.assertIsNone(payload["xml_parse_diagnostics"])
         self.assertIsNone(payload["xml_fallback_inspection"])
         self.assertIsNone(payload["markup_fallback_inspection"])
@@ -738,6 +815,8 @@ class DartValidationViewTests(TestCase):
         self.assertIsNone(payload["document_outline"])
         self.assertIsNone(payload["document_heading_candidates"])
         self.assertIsNone(payload["document_text_extract"])
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     def test_original_document_zip_inspection_failure_returns_structured_error(self, mock_fetch_doc):
@@ -915,6 +994,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn("report_preview", payload)
         self.assertIn("type_specific_analysis", payload)
         self.assertIn("type_specific_summary", payload)
+        self.assertIn("upstream_status", payload)
+        self.assertIn("cache_status", payload)
         self.assertIn("document_structure_signals", payload["analysis"])
         self.assertIn("document_structure_hints", payload["analysis"])
         self.assertIn("raw_items", payload["disclosures"]["data"])
