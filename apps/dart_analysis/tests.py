@@ -841,6 +841,23 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["disclosures"]["data"]["window_label"], "최근 3개월")
         mock_fetch.assert_called_once_with(corp_code="00126380", page_count=200, window_days=90)
 
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_validate_window_all_selection_is_applied(self, mock_fetch):
+        mock_fetch.return_value = {
+            "requested_window": {"bgn_de": "20160101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 0,
+            "items": [],
+        }
+        response = self.client.get("/api/v1/dart/validate", {"corp_code": "00126380", "window": "all"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["input"]["window"], "all")
+        self.assertEqual(payload["disclosures"]["data"]["selected_window"], "all")
+        self.assertEqual(payload["disclosures"]["data"]["window_label"], "전체")
+        mock_fetch.assert_called_once_with(corp_code="00126380", page_count=200, window_days=3650)
+
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     def test_validate_document_structure_enrichment_success_with_mock(self, mock_fetch_list, mock_fetch_doc):
@@ -1605,6 +1622,11 @@ class DartValidationViewTests(TestCase):
         self.assertIn("aggregate_signal_assessment", payload)
         self.assertIn("event_pattern_assessment", payload)
         self.assertIn("window_summary", payload)
+        self.assertIn("historical_reaction_summary", payload)
+        self.assertIn("prediction_signal", payload)
+        self.assertIn("prediction_confidence", payload)
+        self.assertIn("prediction_limitations", payload)
+        self.assertIn("timeframes", payload["market_chart"])
         self.assertEqual(payload["price_assessment"]["price_assessment_status"], "insufficient_market_data")
         self.assertTrue(payload["market_data_status"]["insufficient_market_data"])
         self.assertIsNone(payload["price_assessment"]["entry_zone"])
@@ -1649,6 +1671,33 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["market_data_status"]["insufficient_market_data"], False)
         self.assertEqual(payload["price_assessment"]["price_assessment_status"], "estimated_with_market_data")
         self.assertIsNotNone(payload["price_assessment"]["entry_zone"])
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_investment_report_window_all_and_timeframe_status(self, mock_fetch_list, mock_fetch_doc):
+        mock_fetch_list.return_value = {
+            "requested_window": {"bgn_de": "20160101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 1,
+            "items": [
+                {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260110", "corp_code": "00126380", "corp_name": "테스트", "stock_code": "005930"},
+            ],
+        }
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+        with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "static", "DART_MARKET_PRICE_CURRENT": "71000", "DART_MARKET_PRICE_RECENT_LOW": "68000", "DART_MARKET_PRICE_RECENT_HIGH": "73000", "DART_MARKET_RECENT_VOLUME": "1000000"}, clear=False):
+            response = self.client.get("/api/v1/dart/investment-report", {"corp_code": "00126380", "window": "all"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["window_summary"]["selected_window"], "all")
+        self.assertEqual(payload["window_summary"]["window_label"], "전체")
+        self.assertEqual(payload["market_chart"]["timeframes"]["5분"]["status"], "unavailable")
+        self.assertEqual(payload["market_chart"]["timeframes"]["일봉"]["status"], "unavailable")
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
@@ -1727,3 +1776,5 @@ class DartValidationViewTests(TestCase):
         self.assertIn("original_view", payload)
         self.assertIn("explanation_view", payload)
         self.assertIn("annotated_points", payload["explanation_view"])
+        self.assertIn("evidence_groups", payload["explanation_view"])
+        self.assertIn("label", payload["explanation_view"]["tone_assessment"])

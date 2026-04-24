@@ -8,6 +8,7 @@ from services.event_price_matcher import EventPriceMatcher
 from services.final_report_builder import FinalReportBuilder
 from services.market_data_provider import MarketDataProvider
 from services.price_assessment_engine import PriceAssessmentEngine
+from services.market_chart_builder import MarketChartBuilder
 
 
 @dataclass(slots=True)
@@ -17,6 +18,7 @@ class InvestmentReportBuilder:
     event_price_matcher: EventPriceMatcher = field(default_factory=EventPriceMatcher)
     market_data_provider: MarketDataProvider = field(default_factory=MarketDataProvider.from_env)
     price_assessment_engine: PriceAssessmentEngine = field(default_factory=PriceAssessmentEngine)
+    market_chart_builder: MarketChartBuilder = field(default_factory=MarketChartBuilder)
 
     def build(self, *, validate_payload: dict[str, Any], validate_status_code: int) -> dict[str, Any]:
         request_block = validate_payload.get("input", {}) if isinstance(validate_payload, dict) else {}
@@ -73,6 +75,7 @@ class InvestmentReportBuilder:
             considered_disclosures=considered_disclosures,
             market_data_status=market_data_status,
         )
+        market_chart = self.market_chart_builder.build(market_data_status=market_data_status)
 
         status = {
             "code": "ok" if validate_status_code in {200, 502} else "error",
@@ -119,16 +122,11 @@ class InvestmentReportBuilder:
             "considered_disclosures": considered_disclosures,
             "display_disclosure_cards": display_cards,
             "event_pattern_assessment": event_pattern_assessment,
-            "market_chart": {
-                "supported_timeframes": ["일봉", "월봉", "년봉", "5분", "15분", "30분", "60분"],
-                "default_timeframe": "일봉",
-                "available_timeframes": ["일봉"] if (market_data_status.get("data", {}).get("recent_daily_series") if isinstance(market_data_status.get("data"), dict) else []) else [],
-                "series": (market_data_status.get("data", {}).get("recent_daily_series", [])[:60] if isinstance(market_data_status.get("data"), dict) else []),
-                "limitations": [
-                    "분봉(5/15/30/60) 및 월봉/년봉은 현재 경량 구현에서 기본 제공되지 않을 수 있습니다.",
-                    "미지원 구간은 가짜 차트를 생성하지 않고 미지원 상태로 표시합니다.",
-                ],
-            },
+            "historical_reaction_summary": event_pattern_assessment.get("historical_reaction_summary", {}),
+            "prediction_signal": event_pattern_assessment.get("prediction_signal", "insufficient_evidence"),
+            "prediction_confidence": event_pattern_assessment.get("prediction_confidence", "low"),
+            "prediction_limitations": event_pattern_assessment.get("prediction_limitations", []),
+            "market_chart": market_chart,
             "limitations": [
                 "투자판단 보조용 구조화 리포트이며 확정적 매수/매도 추천을 제공하지 않습니다.",
                 "시장 데이터가 부족하면 가격 구간 산출을 생략합니다.",

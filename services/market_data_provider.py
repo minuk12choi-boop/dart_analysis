@@ -161,7 +161,7 @@ class KISMarketDataProvider:
 
     def _fetch_daily_quotes(self, *, token: str, stock_code: str) -> tuple[list[dict[str, Any]], str | None]:
         today = date.today()
-        begin = today - timedelta(days=30)
+        begin = today - timedelta(days=800)
         params = {
             "FID_COND_MRKT_DIV_CODE": "J",
             "FID_INPUT_ISCD": stock_code,
@@ -252,12 +252,13 @@ class KISMarketDataProvider:
             "recent_daily_series": [
                 {
                     "date": str(row.get("stck_bsop_date") or ""),
+                    "open": _to_float(row.get("stck_oprc")),
                     "close": _to_float(row.get("stck_clpr")),
                     "high": _to_float(row.get("stck_hgpr")),
                     "low": _to_float(row.get("stck_lwpr")),
                     "volume": _to_float(row.get("acml_vol")),
                 }
-                for row in daily_quotes[:30]
+                for row in daily_quotes[:300]
                 if isinstance(row, dict) and str(row.get("stck_bsop_date") or "")
             ],
         }

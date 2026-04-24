@@ -17,7 +17,10 @@
     .modal { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,.35); display: none; }
     .modal-content { background: #fff; width: min(960px, 92vw); max-height: 88vh; overflow:auto; margin: 4vh auto; padding: 16px; border-radius: 8px; }
     .tab-btn { margin-right: 8px; }
-    #chart-box { min-height: 180px; }
+    #chart-box { min-height: 280px; border:1px solid #ddd; border-radius:8px; padding:8px; background:#fcfcfc; }
+    .tf-btn.active { background:#1b8f3a; color:#fff; }
+    .tf-btn.dim { opacity: 0.6; }
+    .candles { width:100%; height:240px; }
   </style>
 </head>
 <body>
@@ -54,8 +57,8 @@
     {% if report_type == "investment" %}
       <div class="card">
         <h2>선택한 조회 기간</h2>
-        <div>window: {{ report.window_summary.selected_window|default:window }}</div>
-        <div>label: {{ report.window_summary.window_label|default:"최근 1개월" }}</div>
+        <div>선택 코드: {{ report.window_summary.selected_window|default:window }}</div>
+        <div>선택 기간: {{ report.window_summary.window_label|default:"최근 1개월" }}</div>
         <div>검토 공시 수: {{ report.window_summary.considered_disclosure_count|default:0 }} / 표시 공시 수: {{ report.window_summary.displayed_disclosure_count|default:0 }}</div>
       </div>
 
@@ -63,13 +66,13 @@
         <h2>주가 차트</h2>
         <div id="chart-box"></div>
         <div>
-          <button type="button" class="tab-btn" onclick="renderChart('일봉')">일봉</button>
-          <button type="button" class="tab-btn" onclick="renderChart('월봉')">월봉</button>
-          <button type="button" class="tab-btn" onclick="renderChart('년봉')">년봉</button>
-          <button type="button" class="tab-btn" onclick="renderChart('5분')">5분</button>
-          <button type="button" class="tab-btn" onclick="renderChart('15분')">15분</button>
-          <button type="button" class="tab-btn" onclick="renderChart('30분')">30분</button>
-          <button type="button" class="tab-btn" onclick="renderChart('60분')">60분</button>
+          <button type="button" id="tf-일봉" class="tab-btn tf-btn" onclick="renderChart('일봉')">일봉</button>
+          <button type="button" id="tf-월봉" class="tab-btn tf-btn" onclick="renderChart('월봉')">월봉</button>
+          <button type="button" id="tf-년봉" class="tab-btn tf-btn" onclick="renderChart('년봉')">년봉</button>
+          <button type="button" id="tf-5분" class="tab-btn tf-btn" onclick="renderChart('5분')">5분</button>
+          <button type="button" id="tf-15분" class="tab-btn tf-btn" onclick="renderChart('15분')">15분</button>
+          <button type="button" id="tf-30분" class="tab-btn tf-btn" onclick="renderChart('30분')">30분</button>
+          <button type="button" id="tf-60분" class="tab-btn tf-btn" onclick="renderChart('60분')">60분</button>
         </div>
         <ul>
           {% for item in report.market_chart.limitations %}
@@ -104,6 +107,22 @@
         <div>entry_zone: {{ report.price_assessment.entry_zone|default:"없음" }}</div>
         <div>exit_zone: {{ report.price_assessment.exit_zone|default:"없음" }}</div>
         <div>risk_cut_zone: {{ report.price_assessment.risk_cut_zone|default:"없음" }}</div>
+      </div>
+
+
+      <div class="card">
+        <h2>이벤트/패턴 예측 요약</h2>
+        <div>패턴 신호: <strong>{{ report.event_pattern_assessment.event_pattern_signal|default:"insufficient_pattern_history" }}</strong></div>
+        <div>패턴 신뢰도: <strong>{{ report.event_pattern_assessment.pattern_confidence|default:"low" }}</strong></div>
+        <div>예측 신호: <strong>{{ report.prediction_signal|default:"insufficient_evidence" }}</strong></div>
+        <div>예측 신뢰도: <strong>{{ report.prediction_confidence|default:"low" }}</strong></div>
+        <ul>
+          {% for item in report.prediction_limitations %}
+            <li class="muted">{{ item }}</li>
+          {% empty %}
+            <li class="muted">예측 제한사항 정보가 없습니다.</li>
+          {% endfor %}
+        </ul>
       </div>
 
       <div class="card">
@@ -223,19 +242,73 @@
   {{ chart_payload|json_script:"chart-payload-data" }}
   <script>
     const chartPayload = JSON.parse(document.getElementById('chart-payload-data').textContent || '{}');
+    function setTfButtonState(tf){
+      ['일봉','월봉','년봉','5분','15분','30분','60분'].forEach(name => {
+        const btn = document.getElementById(`tf-${name}`);
+        if(!btn) return;
+        btn.classList.remove('active');
+        const tfData = (chartPayload.timeframes || {})[name] || {};
+        if(tfData.status !== 'available'){
+          btn.classList.add('dim');
+        } else {
+          btn.classList.remove('dim');
+        }
+      });
+      const active = document.getElementById(`tf-${tf}`);
+      if(active){ active.classList.add('active'); }
+    }
+
     function renderChart(tf){
       const box = document.getElementById('chart-box');
-      const available = (chartPayload.available_timeframes || []);
-      if(!available.includes(tf)){
-        box.innerHTML = `<p class="muted">${tf} 데이터는 현재 제공되지 않습니다.</p>`;
+      setTfButtonState(tf);
+      box.innerHTML = '<p class="muted">차트 데이터를 준비 중입니다...</p>';
+      const tfData = (chartPayload.timeframes || {})[tf] || {};
+      if(tfData.status !== 'available'){
+        box.innerHTML = `<p class="muted">${tfData.message || (tf + ' 데이터는 현재 제공되지 않습니다.')}</p>`;
         return;
       }
-      const series = chartPayload.series || [];
-      if(!series.length){ box.innerHTML = '<p class="muted">차트 데이터가 없습니다.</p>'; return; }
-      const rows = series.slice(0,30).map(row => `<tr><td>${row.date||''}</td><td>${row.close||''}</td></tr>`).join('');
-      box.innerHTML = `<table border="1" cellpadding="4"><tr><th>일자</th><th>종가</th></tr>${rows}</table>`;
+      const points = tfData.points || [];
+      if(!points.length){
+        box.innerHTML = '<p class="muted">표시할 차트 데이터가 없습니다.</p>';
+        return;
+      }
+
+      const recent = points.slice(-60);
+      const maxHigh = Math.max(...recent.map(p => Number(p.high||0)));
+      const minLow = Math.min(...recent.map(p => Number(p.low||0)));
+      const width = Math.max(720, recent.length * 12);
+      const height = 220;
+      const toY = (v) => {
+        if(maxHigh === minLow){ return height / 2; }
+        return 10 + (maxHigh - v) * ((height - 20) / (maxHigh - minLow));
+      };
+
+      const candles = recent.map((p, idx) => {
+        const x = 10 + idx * 12;
+        const open = Number(p.open||0);
+        const close = Number(p.close||0);
+        const high = Number(p.high||0);
+        const low = Number(p.low||0);
+        const color = close >= open ? '#d32f2f' : '#1976d2';
+        const bodyTop = Math.min(toY(open), toY(close));
+        const bodyBottom = Math.max(toY(open), toY(close));
+        const bodyHeight = Math.max(1, bodyBottom - bodyTop);
+        return `
+          <line x1="${x+4}" x2="${x+4}" y1="${toY(high)}" y2="${toY(low)}" stroke="${color}" stroke-width="1" />
+          <rect x="${x+1}" y="${bodyTop}" width="6" height="${bodyHeight}" fill="${color}" opacity="0.75" />
+        `;
+      }).join('');
+
+      const last = recent[recent.length-1] || {};
+      box.innerHTML = `
+        <div class="muted">${tf} · ${recent.length}개 봉 · 최근 종가 ${last.close ?? '-'} </div>
+        <svg class="candles" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#fff" stroke="#ddd" />
+          ${candles}
+        </svg>
+      `;
     }
-    if (typeof renderChart === 'function') { renderChart('일봉'); }
+    if (typeof renderChart === 'function') { renderChart(chartPayload.default_timeframe || '일봉'); }
 
     function showDetailTab(name){
       document.getElementById('tab-original').style.display = name==='original' ? 'block' : 'none';
@@ -260,14 +333,14 @@
       document.getElementById('tab-original').innerHTML = `
         <p><a href="${o.viewer_url || '#'}" target="_blank">DART 원문 링크 열기</a></p>
         <p>ZIP 엔트리 수: ${o.zip_inspection?.entry_count ?? '-'}</p>
-        <pre>${JSON.stringify(o.document_outline || {}, null, 2)}</pre>
+        <pre>${JSON.stringify(o.document_outline || {}, null, 2)}</pre><p><strong>핵심 heading:</strong> ${(o.heading_candidates||[]).slice(0,5).map(h => h.text||'').join(' / ') || '없음'}</p><p><strong>텍스트 조각:</strong> ${(o.text_extract?.plain_text_snippets||[]).slice(0,3).join(' / ') || '없음'}</p>
       `;
       const e = data.explanation_view || {};
       const points = (e.annotated_points || []).map(p => `<li class="annot"><strong>${p.label}</strong>: ${p.comment}</li>`).join('');
       const limits = (e.limitations || []).map(p => `<li>${p}</li>`).join('');
       document.getElementById('tab-explain').innerHTML = `
         <p>${e.plain_explanation || ''}</p>
-        <p><strong>톤 평가:</strong> ${e.tone_assessment || 'unknown'}</p>
+        <p><strong>톤 평가:</strong> ${(e.tone_assessment?.label || '중립')} / ${(e.tone_assessment?.reason || '')}</p>
         <ul>${points}</ul>
         <ul>${limits}</ul>
       `;
