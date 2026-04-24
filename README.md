@@ -158,6 +158,11 @@ python manage.py test apps.dart_analysis
   - `market_data_status.provider`는 `kis`로 반환됩니다.
   - `configured`, `live_fetch_succeeded`, `available_fields`, `unavailable_fields`를 함께 반환합니다.
   - 국내 6자리 종목코드(`stock_code`)가 없으면 조회를 강행하지 않고 보수적 부족 상태를 반환합니다.
+- 공시 의미 판정 규칙(요약):
+  - 단건 판정은 `normalized category + detected signals + type-specific rule + 구조/텍스트 보조 근거`를 가중합해 `signal_direction`을 산출합니다.
+  - 집계 판정은 기간 내 전체 공시를 대상으로 `direction_counts`, `weighted_direction_counts`, 반복 이벤트 가중치(예: 반복 자금조달)를 반영합니다.
+  - `aggregate_signal_assessment.meaning_engine_version`과 `aggregate_evidence`로 판단 근거를 명시합니다.
+  - 근거가 약하면 `insufficient_evidence`를 유지하며 임의 방향 전환을 하지 않습니다.
 
 ## report_preview 블록(사람 친화 미리보기)
 - `/api/v1/dart/validate`는 기존 기계 친화 블록과 별도로 `report_preview`를 제공합니다.

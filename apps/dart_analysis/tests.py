@@ -359,6 +359,65 @@ class InvestmentEngineUnitTests(TestCase):
         self.assertIn(result["aggregate_signal_assessment"]["signal_direction"], {"mixed", "negative", "positive"})
         self.assertEqual(result["aggregate_signal_assessment"]["considered_disclosure_count"], 2)
         self.assertGreaterEqual(len(result["event_assessment"]["items"]), 2)
+        self.assertIn("weighted_direction_counts", result["aggregate_signal_assessment"])
+        self.assertIn("meaning_engine_version", result["aggregate_signal_assessment"])
+
+    def test_disclosure_meaning_evaluator_can_return_neutral_when_periodic_only(self):
+        evaluator = DisclosureMeaningEvaluator()
+        result = evaluator.evaluate(
+            normalized_items=[
+                {
+                    "raw": {"rcept_no": "1", "report_nm": "사업보고서", "rcept_dt": "20260101"},
+                    "normalized": {"category": "periodic_report", "detected_signals": ["periodic_reporting"]},
+                },
+                {
+                    "raw": {"rcept_no": "2", "report_nm": "분기보고서", "rcept_dt": "20260102"},
+                    "normalized": {"category": "periodic_report", "detected_signals": ["periodic_reporting"]},
+                },
+            ],
+            type_specific_analysis={"items": [{"rcept_no": "1", "matched_type_rule": "periodic_report"}, {"rcept_no": "2", "matched_type_rule": "periodic_report"}]},
+            analysis={},
+            report_preview={},
+            document_structure_enrichment={},
+        )
+        self.assertEqual(result["aggregate_signal_assessment"]["signal_direction"], "neutral")
+
+    def test_disclosure_meaning_evaluator_repeated_financing_biases_negative(self):
+        evaluator = DisclosureMeaningEvaluator()
+        result = evaluator.evaluate(
+            normalized_items=[
+                {
+                    "raw": {"rcept_no": "1", "report_nm": "유상증자 결정", "rcept_dt": "20260101"},
+                    "normalized": {"category": "financing", "detected_signals": ["rights_offering"]},
+                },
+                {
+                    "raw": {"rcept_no": "2", "report_nm": "전환사채권발행결정", "rcept_dt": "20260102"},
+                    "normalized": {"category": "financing", "detected_signals": ["convertible_bond"]},
+                },
+            ],
+            type_specific_analysis={"items": [{"rcept_no": "1", "matched_type_rule": "rights_offering_or_capital_increase"}, {"rcept_no": "2", "matched_type_rule": "convertible_bond_or_bond_with_warrant"}]},
+            analysis={},
+            report_preview={},
+            document_structure_enrichment={},
+        )
+        self.assertEqual(result["aggregate_signal_assessment"]["signal_direction"], "negative")
+        self.assertTrue(any("반복 자금조달" in evidence for evidence in result["aggregate_signal_assessment"]["aggregate_evidence"]))
+
+    def test_disclosure_meaning_evaluator_stays_insufficient_when_evidence_is_weak(self):
+        evaluator = DisclosureMeaningEvaluator()
+        result = evaluator.evaluate(
+            normalized_items=[
+                {
+                    "raw": {"rcept_no": "1", "report_nm": "기타공시", "rcept_dt": "20260101"},
+                    "normalized": {"category": "other", "detected_signals": []},
+                }
+            ],
+            type_specific_analysis={"items": [{"rcept_no": "1", "matched_type_rule": None}]},
+            analysis={},
+            report_preview={},
+            document_structure_enrichment={},
+        )
+        self.assertEqual(result["aggregate_signal_assessment"]["signal_direction"], "insufficient_evidence")
 
     def test_market_data_provider_kis_missing_credentials(self):
         with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_API_KEY": "", "KIS_APP_SECRET": ""}, clear=False):
@@ -1621,3 +1680,4 @@ class DartValidationViewTests(TestCase):
         self.assertIn("투자판단 리포트", content)
         self.assertIn("집계 시그널", content)
         self.assertIn("price_assessment_status", content)
+        self.assertIn("제한사항", content)
