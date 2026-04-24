@@ -33,7 +33,7 @@ class KISMarketDataProvider:
 
     @classmethod
     def from_env(cls) -> "KISMarketDataProvider | None":
-        app_key = (os.getenv("KIS_APP_KEY") or "").strip()
+        app_key = (os.getenv("KIS_API_KEY") or os.getenv("KIS_APP_KEY") or "").strip()
         app_secret = (os.getenv("KIS_APP_SECRET") or "").strip()
         if not app_key or not app_secret:
             return None
@@ -291,7 +291,7 @@ class MarketDataProvider:
                     "available_fields": [],
                     "unavailable_fields": ["current_price", "recent_low", "recent_high", "recent_volume", "volatility_proxy"],
                     "data": {},
-                    "message": "KIS_APP_KEY 또는 KIS_APP_SECRET이 설정되지 않아 KIS 시세 조회를 수행하지 못했습니다.",
+                    "message": "KIS_API_KEY 또는 KIS_APP_SECRET이 설정되지 않아 KIS 시세 조회를 수행하지 못했습니다.",
                     "lookup": {"corp_code": corp_code, "stock_code": stock_code},
                     "errors": ["missing_kis_credentials"],
                 }

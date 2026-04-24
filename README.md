@@ -222,7 +222,8 @@ python manage.py test apps.dart_analysis
   - `DART_MARKET_RECENT_VOLUME`, `DART_MARKET_VOLATILITY_PROXY`, `DART_MARKET_CAP`, `DART_MARKET_SHARE_COUNT`
   - KIS 연동(국내 KOSPI/KOSDAQ):
     - `DART_MARKET_DATA_PROVIDER=kis`
-    - `KIS_APP_KEY`, `KIS_APP_SECRET`
+    - `KIS_API_KEY`, `KIS_APP_SECRET`
+    - (하위 호환) `KIS_APP_KEY`도 인식하지만 기본 권장 키 이름은 `KIS_API_KEY`입니다.
     - `KIS_BASE_URL` (기본: `https://openapi.koreainvestment.com:9443`)
     - `KIS_TIMEOUT_SECONDS` (기본 10), `KIS_MAX_RETRIES` (기본 1)
     - `KIS_TOKEN_CACHE_TTL_SECONDS` (기본 3000), `KIS_SNAPSHOT_CACHE_TTL_SECONDS` (기본 60)

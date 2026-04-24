@@ -361,7 +361,7 @@ class InvestmentEngineUnitTests(TestCase):
         self.assertGreaterEqual(len(result["event_assessment"]["items"]), 2)
 
     def test_market_data_provider_kis_missing_credentials(self):
-        with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "", "KIS_APP_SECRET": ""}, clear=False):
+        with patch.dict(os.environ, {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_API_KEY": "", "KIS_APP_SECRET": ""}, clear=False):
             status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="005930")
         self.assertEqual(status["provider"], "kis")
         self.assertFalse(status["configured"])
@@ -371,13 +371,23 @@ class InvestmentEngineUnitTests(TestCase):
     def test_market_data_provider_kis_stock_code_missing(self):
         with patch.dict(
             os.environ,
-            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "a", "KIS_APP_SECRET": "b"},
+            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_API_KEY": "a", "KIS_APP_SECRET": "b"},
             clear=False,
         ):
             status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="")
         self.assertEqual(status["provider"], "kis")
         self.assertTrue(status["insufficient_market_data"])
         self.assertIn("stock_code", status["unavailable_fields"])
+
+    def test_market_data_provider_kis_accepts_legacy_app_key_alias(self):
+        with patch.dict(
+            os.environ,
+            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_API_KEY": "", "KIS_APP_KEY": "legacy-key", "KIS_APP_SECRET": "b"},
+            clear=False,
+        ):
+            status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="")
+        self.assertEqual(status["provider"], "kis")
+        self.assertTrue(status["configured"])
 
     @patch("services.market_data_provider.urlopen")
     def test_market_data_provider_kis_configured_with_mock(self, mock_urlopen):
@@ -403,7 +413,7 @@ class InvestmentEngineUnitTests(TestCase):
 
         with patch.dict(
             os.environ,
-            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "a", "KIS_APP_SECRET": "b"},
+            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_API_KEY": "a", "KIS_APP_SECRET": "b"},
             clear=False,
         ):
             status = MarketDataProvider.from_env().fetch_snapshot(corp_code="00126380", stock_code="005930")
@@ -1576,7 +1586,7 @@ class DartValidationViewTests(TestCase):
         }
         with patch.dict(
             os.environ,
-            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_APP_KEY": "a", "KIS_APP_SECRET": "b"},
+            {"DART_MARKET_DATA_PROVIDER": "kis", "KIS_API_KEY": "a", "KIS_APP_SECRET": "b"},
             clear=False,
         ):
             response = self.client.get("/api/v1/dart/investment-report", {"corp_code": "00126380"})
