@@ -12,6 +12,12 @@
     input { padding: 8px; margin-right: 8px; width: 220px; }
     button { padding: 8px 12px; }
     ul { margin-top: 6px; }
+    .annot { color: #1b8f3a; }
+    .clickable { cursor: pointer; text-decoration: underline; }
+    .modal { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,.35); display: none; }
+    .modal-content { background: #fff; width: min(960px, 92vw); max-height: 88vh; overflow:auto; margin: 4vh auto; padding: 16px; border-radius: 8px; }
+    .tab-btn { margin-right: 8px; }
+    #chart-box { min-height: 180px; }
   </style>
 </head>
 <body>
@@ -24,6 +30,11 @@
     <select name="report_type">
       <option value="basic" {% if report_type == "basic" %}selected{% endif %}>기본 공시 리포트</option>
       <option value="investment" {% if report_type == "investment" %}selected{% endif %}>투자판단 리포트</option>
+    </select>
+    <select name="window">
+      {% for opt in window_options %}
+        <option value="{{ opt.value }}" {% if window == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+      {% endfor %}
     </select>
     <button type="submit">조회</button>
   </form>
@@ -41,6 +52,32 @@
       <p class="error">입력값 또는 조회 상태로 인해 리포트가 제한되어 표시됩니다.</p>
     {% endif %}
     {% if report_type == "investment" %}
+      <div class="card">
+        <h2>선택한 조회 기간</h2>
+        <div>window: {{ report.window_summary.selected_window|default:window }}</div>
+        <div>label: {{ report.window_summary.window_label|default:"최근 1개월" }}</div>
+        <div>검토 공시 수: {{ report.window_summary.considered_disclosure_count|default:0 }} / 표시 공시 수: {{ report.window_summary.displayed_disclosure_count|default:0 }}</div>
+      </div>
+
+      <div class="card">
+        <h2>주가 차트</h2>
+        <div id="chart-box"></div>
+        <div>
+          <button type="button" class="tab-btn" onclick="renderChart('일봉')">일봉</button>
+          <button type="button" class="tab-btn" onclick="renderChart('월봉')">월봉</button>
+          <button type="button" class="tab-btn" onclick="renderChart('년봉')">년봉</button>
+          <button type="button" class="tab-btn" onclick="renderChart('5분')">5분</button>
+          <button type="button" class="tab-btn" onclick="renderChart('15분')">15분</button>
+          <button type="button" class="tab-btn" onclick="renderChart('30분')">30분</button>
+          <button type="button" class="tab-btn" onclick="renderChart('60분')">60분</button>
+        </div>
+        <ul>
+          {% for item in report.market_chart.limitations %}
+            <li class="muted">{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+
       <div class="card">
         <h2>집계 시그널</h2>
         <div>방향: <strong>{{ report.aggregate_signal_assessment.signal_direction|default:"insufficient_evidence" }}</strong></div>
@@ -94,7 +131,7 @@
       <div class="card">
         <h2>표시 공시 카드</h2>
         {% for card in report.display_disclosure_cards %}
-          <div class="card">
+          <div class="card clickable" onclick="openDisclosureModal('{{ card.rcept_no }}', '{{ card.report_nm|escapejs }}', '{{ card.normalized_category|default:'other' }}', '{{ card.detected_signals|join:',' }}')">
             <strong>{{ card.report_nm }}</strong> ({{ card.rcept_dt }}) / {{ card.rcept_no }}
             <div>카테고리: {{ card.normalized_category }}</div>
             <div>감지 신호: {{ card.detected_signals|join:", "|default:"없음" }}</div>
@@ -171,5 +208,70 @@
   {% else %}
     <p class="error">리포트를 불러오지 못했습니다.</p>
   {% endif %}
+
+  <div id="disclosure-modal" class="modal" onclick="if(event.target.id==='disclosure-modal'){closeDisclosureModal()}">
+    <div class="modal-content">
+      <h3 id="modal-title">공시 상세</h3>
+      <button type="button" class="tab-btn" onclick="showDetailTab('original')">공시원문 보기</button>
+      <button type="button" class="tab-btn" onclick="showDetailTab('explain')">공시원문 해석본 보기</button>
+      <button type="button" class="tab-btn" onclick="closeDisclosureModal()">닫기</button>
+      <div id="tab-original"></div>
+      <div id="tab-explain" style="display:none;"></div>
+    </div>
+  </div>
+
+  {{ chart_payload|json_script:"chart-payload-data" }}
+  <script>
+    const chartPayload = JSON.parse(document.getElementById('chart-payload-data').textContent || '{}');
+    function renderChart(tf){
+      const box = document.getElementById('chart-box');
+      const available = (chartPayload.available_timeframes || []);
+      if(!available.includes(tf)){
+        box.innerHTML = `<p class="muted">${tf} 데이터는 현재 제공되지 않습니다.</p>`;
+        return;
+      }
+      const series = chartPayload.series || [];
+      if(!series.length){ box.innerHTML = '<p class="muted">차트 데이터가 없습니다.</p>'; return; }
+      const rows = series.slice(0,30).map(row => `<tr><td>${row.date||''}</td><td>${row.close||''}</td></tr>`).join('');
+      box.innerHTML = `<table border="1" cellpadding="4"><tr><th>일자</th><th>종가</th></tr>${rows}</table>`;
+    }
+    if (typeof renderChart === 'function') { renderChart('일봉'); }
+
+    function showDetailTab(name){
+      document.getElementById('tab-original').style.display = name==='original' ? 'block' : 'none';
+      document.getElementById('tab-explain').style.display = name==='explain' ? 'block' : 'none';
+    }
+    function closeDisclosureModal(){ document.getElementById('disclosure-modal').style.display='none'; }
+    async function openDisclosureModal(rceptNo, reportNm, category, signals){
+      document.getElementById('disclosure-modal').style.display='block';
+      document.getElementById('modal-title').innerText = `${reportNm} (${rceptNo})`;
+      document.getElementById('tab-original').innerHTML = '<p class="muted">불러오는 중...</p>';
+      document.getElementById('tab-explain').innerHTML = '<p class="muted">불러오는 중...</p>';
+      showDetailTab('original');
+      const url = `/api/v1/dart/disclosure-detail?rcept_no=${encodeURIComponent(rceptNo)}&report_nm=${encodeURIComponent(reportNm)}&category=${encodeURIComponent(category)}&signals=${encodeURIComponent(signals||'')}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if(!data.ok){
+        document.getElementById('tab-original').innerHTML = `<p class="error">${data.error?.message || '불러오기 실패'}</p>`;
+        document.getElementById('tab-explain').innerHTML = `<p class="error">${data.error?.message || '불러오기 실패'}</p>`;
+        return;
+      }
+      const o = data.original_view || {};
+      document.getElementById('tab-original').innerHTML = `
+        <p><a href="${o.viewer_url || '#'}" target="_blank">DART 원문 링크 열기</a></p>
+        <p>ZIP 엔트리 수: ${o.zip_inspection?.entry_count ?? '-'}</p>
+        <pre>${JSON.stringify(o.document_outline || {}, null, 2)}</pre>
+      `;
+      const e = data.explanation_view || {};
+      const points = (e.annotated_points || []).map(p => `<li class="annot"><strong>${p.label}</strong>: ${p.comment}</li>`).join('');
+      const limits = (e.limitations || []).map(p => `<li>${p}</li>`).join('');
+      document.getElementById('tab-explain').innerHTML = `
+        <p>${e.plain_explanation || ''}</p>
+        <p><strong>톤 평가:</strong> ${e.tone_assessment || 'unknown'}</p>
+        <ul>${points}</ul>
+        <ul>${limits}</ul>
+      `;
+    }
+  </script>
 </body>
 </html>

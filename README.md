@@ -47,6 +47,7 @@ python manage.py runserver
 ```
 
 ## 검증 엔드포인트
+- 루트(`/`)는 `/dart/`로 리다이렉트됩니다.
 - URL: `GET /api/v1/dart/validate`
 - 또는: `POST /api/v1/dart/validate`
 
@@ -74,7 +75,9 @@ curl "http://127.0.0.1:8000/api/v1/dart/investment-report?corp_code=00126380"
 - URL: `GET /dart/`
 - 회사명 또는 corp_code 입력 후 조회 버튼 클릭
 - 리포트 타입 선택: `기본 공시 리포트` 또는 `투자판단 리포트`
+- 조회 기간 선택: `전체 / 최근 1개월 / 최근 3개월 / 최근 6개월 / 최근 1년`
 - 투자판단 리포트 주요 표시 항목: 집계 시그널 방향/신뢰도, 시장 데이터 상태, 가격판단 상태, 핵심 근거, 주의 포인트, 표시 공시 카드
+- 공시 카드를 클릭하면 팝업에서 `공시원문 보기` / `공시원문 해석본 보기`를 전환할 수 있습니다.
 
 ### 예시 4: rcept_no 기반 원문 접근 메타데이터 조회
 ```bash
@@ -163,6 +166,10 @@ python manage.py test apps.dart_analysis
   - 집계 판정은 기간 내 전체 공시를 대상으로 `direction_counts`, `weighted_direction_counts`, 반복 이벤트 가중치(예: 반복 자금조달)를 반영합니다.
   - `aggregate_signal_assessment.meaning_engine_version`과 `aggregate_evidence`로 판단 근거를 명시합니다.
   - 근거가 약하면 `insufficient_evidence`를 유지하며 임의 방향 전환을 하지 않습니다.
+- 이벤트-주가 반응 매칭(요약):
+  - 가능한 범위에서 공시일 전/당일/후 단순 윈도우를 매칭해 `event_pattern_assessment`를 생성합니다.
+  - 데이터가 부족하면 `insufficient_pattern_history`로 보수적으로 반환합니다.
+  - 통계적 확정 예측이 아닌 참고 구조이며 `prediction_limitations`를 반드시 확인해야 합니다.
 
 ## report_preview 블록(사람 친화 미리보기)
 - `/api/v1/dart/validate`는 기존 기계 친화 블록과 별도로 `report_preview`를 제공합니다.

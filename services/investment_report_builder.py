@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from services.disclosure_meaning_evaluator import DisclosureMeaningEvaluator
+from services.event_price_matcher import EventPriceMatcher
 from services.final_report_builder import FinalReportBuilder
 from services.market_data_provider import MarketDataProvider
 from services.price_assessment_engine import PriceAssessmentEngine
@@ -13,6 +14,7 @@ from services.price_assessment_engine import PriceAssessmentEngine
 class InvestmentReportBuilder:
     display_card_limit: int = 3
     disclosure_meaning_evaluator: DisclosureMeaningEvaluator = field(default_factory=DisclosureMeaningEvaluator)
+    event_price_matcher: EventPriceMatcher = field(default_factory=EventPriceMatcher)
     market_data_provider: MarketDataProvider = field(default_factory=MarketDataProvider.from_env)
     price_assessment_engine: PriceAssessmentEngine = field(default_factory=PriceAssessmentEngine)
 
@@ -56,6 +58,21 @@ class InvestmentReportBuilder:
             validate_payload=validate_payload,
             validate_status_code=validate_status_code,
         ).get("disclosure_cards", [])
+        considered_disclosures = [
+            {
+                "rcept_no": (item.get("raw", {}) if isinstance(item, dict) else {}).get("rcept_no"),
+                "report_nm": (item.get("raw", {}) if isinstance(item, dict) else {}).get("report_nm"),
+                "rcept_dt": (item.get("raw", {}) if isinstance(item, dict) else {}).get("rcept_dt"),
+                "category": (item.get("normalized", {}) if isinstance(item, dict) else {}).get("category"),
+                "detected_signals": (item.get("normalized", {}) if isinstance(item, dict) else {}).get("detected_signals", []),
+            }
+            for item in normalized_items
+            if isinstance(item, dict)
+        ]
+        event_pattern_assessment = self.event_price_matcher.build(
+            considered_disclosures=considered_disclosures,
+            market_data_status=market_data_status,
+        )
 
         status = {
             "code": "ok" if validate_status_code in {200, 502} else "error",
@@ -75,9 +92,23 @@ class InvestmentReportBuilder:
             },
             "window_summary": {
                 "requested_window": disclosures_data.get("requested_window") if isinstance(disclosures_data, dict) else None,
+                "selected_window": (
+                    disclosures_data.get("selected_window")
+                    if isinstance(disclosures_data, dict) and disclosures_data.get("selected_window")
+                    else request_block.get("window", "1m")
+                ),
+                "window_label": (
+                    disclosures_data.get("window_label")
+                    if isinstance(disclosures_data, dict) and disclosures_data.get("window_label")
+                    else {"all": "전체", "1m": "최근 1개월", "3m": "최근 3개월", "6m": "최근 6개월", "1y": "최근 1년"}.get(
+                        request_block.get("window", "1m"), "최근 1개월"
+                    )
+                ),
                 "total_disclosures": summary.get("total_disclosures", 0) if isinstance(summary, dict) else 0,
                 "category_counts": summary.get("category_counts", {}) if isinstance(summary, dict) else {},
                 "detected_signal_counts": summary.get("detected_signals", {}) if isinstance(summary, dict) else {},
+                "considered_disclosure_count": len(considered_disclosures),
+                "displayed_disclosure_count": len(display_cards),
             },
             "aggregate_signal_assessment": aggregate,
             "event_assessment": meaning_result.get("event_assessment", {}),
@@ -85,18 +116,19 @@ class InvestmentReportBuilder:
             "price_assessment": price_assessment,
             "key_evidence": meaning_result.get("key_evidence", []),
             "caution_points": meaning_result.get("caution_points", []),
-            "considered_disclosures": [
-                {
-                    "rcept_no": (item.get("raw", {}) if isinstance(item, dict) else {}).get("rcept_no"),
-                    "report_nm": (item.get("raw", {}) if isinstance(item, dict) else {}).get("report_nm"),
-                    "rcept_dt": (item.get("raw", {}) if isinstance(item, dict) else {}).get("rcept_dt"),
-                    "category": (item.get("normalized", {}) if isinstance(item, dict) else {}).get("category"),
-                    "detected_signals": (item.get("normalized", {}) if isinstance(item, dict) else {}).get("detected_signals", []),
-                }
-                for item in normalized_items
-                if isinstance(item, dict)
-            ],
+            "considered_disclosures": considered_disclosures,
             "display_disclosure_cards": display_cards,
+            "event_pattern_assessment": event_pattern_assessment,
+            "market_chart": {
+                "supported_timeframes": ["일봉", "월봉", "년봉", "5분", "15분", "30분", "60분"],
+                "default_timeframe": "일봉",
+                "available_timeframes": ["일봉"] if (market_data_status.get("data", {}).get("recent_daily_series") if isinstance(market_data_status.get("data"), dict) else []) else [],
+                "series": (market_data_status.get("data", {}).get("recent_daily_series", [])[:60] if isinstance(market_data_status.get("data"), dict) else []),
+                "limitations": [
+                    "분봉(5/15/30/60) 및 월봉/년봉은 현재 경량 구현에서 기본 제공되지 않을 수 있습니다.",
+                    "미지원 구간은 가짜 차트를 생성하지 않고 미지원 상태로 표시합니다.",
+                ],
+            },
             "limitations": [
                 "투자판단 보조용 구조화 리포트이며 확정적 매수/매도 추천을 제공하지 않습니다.",
                 "시장 데이터가 부족하면 가격 구간 산출을 생략합니다.",

@@ -696,6 +696,11 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("입력 후 조회 버튼을 누르면 결과가 표시됩니다.", response.content.decode("utf-8"))
 
+    def test_root_redirects_to_dart_ui(self):
+        response = self.client.get("/", follow=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/dart/")
+
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     @patch("apps.dart_analysis.views.CompanyNameResolver.resolve")
     def test_company_name_exact_resolution_success(self, mock_resolve, mock_fetch):
@@ -733,7 +738,7 @@ class DartValidationViewTests(TestCase):
         self.assertEqual(payload["input"]["corp_code"], "00126380")
         self.assertEqual(payload["disclosures"]["data"]["summary"]["total_disclosures"], 1)
         self.assertIn("implemented", payload["analysis"])
-        mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
+        mock_fetch.assert_called_once_with(corp_code="00126380", page_count=200, window_days=30)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
     @patch("apps.dart_analysis.views.CompanyNameResolver.resolve")
@@ -815,8 +820,26 @@ class DartValidationViewTests(TestCase):
         self.assertIn("type_specific_summary", payload)
         self.assertIn("upstream_status", payload)
         self.assertIn("cache_status", payload)
+        self.assertEqual(payload["input"]["window"], "1m")
         self.assertIn("document_structure_enrichment", payload["disclosures"]["data"])
-        mock_fetch.assert_called_once_with(corp_code="00126380", page_count=5)
+        mock_fetch.assert_called_once_with(corp_code="00126380", page_count=200, window_days=30)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
+    def test_validate_window_selection_is_applied(self, mock_fetch):
+        mock_fetch.return_value = {
+            "requested_window": {"bgn_de": "20250101", "end_de": "20260131"},
+            "status": "000",
+            "message": "정상",
+            "total_count": 0,
+            "items": [],
+        }
+        response = self.client.get("/api/v1/dart/validate", {"corp_code": "00126380", "window": "3m"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["input"]["window"], "3m")
+        self.assertEqual(payload["disclosures"]["data"]["selected_window"], "3m")
+        self.assertEqual(payload["disclosures"]["data"]["window_label"], "최근 3개월")
+        mock_fetch.assert_called_once_with(corp_code="00126380", page_count=200, window_days=90)
 
     @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
     @patch("apps.dart_analysis.views.DartClient.fetch_disclosure_list")
@@ -1580,6 +1603,8 @@ class DartValidationViewTests(TestCase):
         self.assertIn("market_data_status", payload)
         self.assertIn("price_assessment", payload)
         self.assertIn("aggregate_signal_assessment", payload)
+        self.assertIn("event_pattern_assessment", payload)
+        self.assertIn("window_summary", payload)
         self.assertEqual(payload["price_assessment"]["price_assessment_status"], "insufficient_market_data")
         self.assertTrue(payload["market_data_status"]["insufficient_market_data"])
         self.assertIsNone(payload["price_assessment"]["entry_zone"])
@@ -1681,3 +1706,24 @@ class DartValidationViewTests(TestCase):
         self.assertIn("집계 시그널", content)
         self.assertIn("price_assessment_status", content)
         self.assertIn("제한사항", content)
+        self.assertIn("공시원문 보기", content)
+        self.assertIn("공시원문 해석본 보기", content)
+
+    @patch("apps.dart_analysis.views.DartClient.fetch_original_document_payload")
+    def test_disclosure_detail_endpoint_returns_original_and_explanation(self, mock_fetch_doc):
+        mock_fetch_doc.return_value = {
+            "rcept_no": "1",
+            "viewer_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+            "content_type": "application/zip",
+            "content": _build_markup_with_heading_candidates_invalid_xml_zip_payload(),
+        }
+        response = self.client.get(
+            "/api/v1/dart/disclosure-detail",
+            {"rcept_no": "1", "report_nm": "사업보고서", "category": "periodic_report", "signals": "periodic_reporting"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertIn("original_view", payload)
+        self.assertIn("explanation_view", payload)
+        self.assertIn("annotated_points", payload["explanation_view"])

@@ -249,6 +249,17 @@ class KISMarketDataProvider:
             "volatility_proxy": volatility_proxy,
             "market_cap": None,
             "share_count": None,
+            "recent_daily_series": [
+                {
+                    "date": str(row.get("stck_bsop_date") or ""),
+                    "close": _to_float(row.get("stck_clpr")),
+                    "high": _to_float(row.get("stck_hgpr")),
+                    "low": _to_float(row.get("stck_lwpr")),
+                    "volume": _to_float(row.get("acml_vol")),
+                }
+                for row in daily_quotes[:30]
+                if isinstance(row, dict) and str(row.get("stck_bsop_date") or "")
+            ],
         }
 
     def _cache_get(self, stock_code: str) -> dict[str, Any] | None:
@@ -327,6 +338,7 @@ class MarketDataProvider:
                 "volatility_proxy": volatility_proxy if volatility_proxy > 0 else None,
                 "market_cap": market_cap if market_cap > 0 else None,
                 "share_count": share_count if share_count > 0 else None,
+                "recent_daily_series": [],
             }
             required_fields = ["current_price", "recent_low", "recent_high", "recent_volume"]
             unavailable_fields = [key for key in required_fields if values.get(key) is None]

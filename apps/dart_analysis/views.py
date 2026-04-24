@@ -20,14 +20,33 @@ from services.document_text_extract_builder import DocumentTextExtractBuilder
 from services.document_outline_builder import DocumentOutlineBuilder
 from services.document_zip_inspector import DocumentZipInspectionError, DocumentZipInspector
 from services.document_xml_inspector import DocumentXMLInspectionError, DocumentXMLInspector
+from services.disclosure_explanation_builder import DisclosureExplanationBuilder
+
+WINDOW_DAYS_MAP = {
+    "all": 3650,
+    "1m": 30,
+    "3m": 90,
+    "6m": 180,
+    "1y": 365,
+}
+WINDOW_LABEL_MAP = {
+    "all": "전체",
+    "1m": "최근 1개월",
+    "3m": "최근 3개월",
+    "6m": "최근 6개월",
+    "1y": "최근 1년",
+}
 
 
 class DartValidationView(View):
     http_method_names = ["get", "post"]
 
-    def _read_input(self, request: HttpRequest) -> tuple[str | None, str | None]:
+    def _read_input(self, request: HttpRequest) -> tuple[str | None, str | None, str]:
         company_name = request.GET.get("company_name")
         corp_code = request.GET.get("corp_code")
+        window = (request.GET.get("window") or "1m").strip().lower()
+        if window not in WINDOW_DAYS_MAP:
+            window = "1m"
 
         if request.method == "POST":
             try:
@@ -36,6 +55,9 @@ class DartValidationView(View):
                 payload = {}
             company_name = payload.get("company_name", company_name)
             corp_code = payload.get("corp_code", corp_code)
+            window = str(payload.get("window", window) or window).strip().lower()
+            if window not in WINDOW_DAYS_MAP:
+                window = "1m"
 
         company_name = company_name.strip() if isinstance(company_name, str) else None
         corp_code = corp_code.strip() if isinstance(corp_code, str) else None
@@ -43,7 +65,7 @@ class DartValidationView(View):
             company_name = None
         if corp_code == "":
             corp_code = None
-        return company_name, corp_code
+        return company_name, corp_code, window
 
     def _validate_input(self, company_name: str | None, corp_code: str | None) -> str | None:
         if not company_name and not corp_code:
@@ -53,7 +75,7 @@ class DartValidationView(View):
         return None
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
-        company_name, corp_code = self._read_input(request)
+        company_name, corp_code, window = self._read_input(request)
         input_error = self._validate_input(company_name, corp_code)
         if input_error:
             return JsonResponse(
@@ -66,6 +88,7 @@ class DartValidationView(View):
                     "input": {
                         "company_name": company_name,
                         "corp_code": corp_code,
+                        "window": window,
                     },
                 },
                 status=400,
@@ -84,6 +107,7 @@ class DartValidationView(View):
                     "input": {
                         "company_name": company_name,
                         "corp_code": corp_code,
+                        "window": window,
                     },
                 },
                 status=500,
@@ -113,6 +137,7 @@ class DartValidationView(View):
                         "input": {
                             "company_name": company_name,
                             "corp_code": corp_code,
+                            "window": window,
                         },
                         "upstream_status": client.snapshot_upstream_status(),
                         "cache_status": client.snapshot_cache_status(),
@@ -133,6 +158,7 @@ class DartValidationView(View):
                         "input": {
                             "company_name": company_name,
                             "corp_code": None,
+                            "window": window,
                         },
                         "resolution": resolution,
                     },
@@ -149,6 +175,7 @@ class DartValidationView(View):
                         "input": {
                             "company_name": company_name,
                             "corp_code": None,
+                            "window": window,
                         },
                         "resolution": resolution,
                     },
@@ -197,13 +224,19 @@ class DartValidationView(View):
 
         if corp_code:
             try:
-                disclosure_data = client.fetch_disclosure_list(corp_code=corp_code, page_count=5)
+                disclosure_data = client.fetch_disclosure_list(
+                    corp_code=corp_code,
+                    page_count=200,
+                    window_days=WINDOW_DAYS_MAP.get(window, 30),
+                )
                 normalized_block = normalizer.normalize_items(disclosure_data.get("items", []))
                 disclosures = {
                     "attempted": True,
                     "reason": None,
                     "data": {
                         "requested_window": disclosure_data.get("requested_window"),
+                        "selected_window": window,
+                        "window_label": WINDOW_LABEL_MAP.get(window, "최근 1개월"),
                         "status": disclosure_data.get("status"),
                         "message": disclosure_data.get("message"),
                         "total_count": disclosure_data.get("total_count"),
@@ -257,6 +290,7 @@ class DartValidationView(View):
                         "input": {
                             "company_name": company_name,
                             "corp_code": corp_code,
+                            "window": window,
                         },
                         "resolution": resolution,
                         "analysis": analysis,
@@ -276,6 +310,7 @@ class DartValidationView(View):
                 "input": {
                     "company_name": company_name,
                     "corp_code": corp_code,
+                    "window": window,
                 },
                 "resolution": resolution,
                 "dart_client": client.readiness_payload(),
@@ -329,6 +364,9 @@ class DartReportPageView(View):
         company_name = (request.GET.get("company_name") or "").strip()
         corp_code = (request.GET.get("corp_code") or "").strip()
         report_type = (request.GET.get("report_type") or "basic").strip().lower()
+        window = (request.GET.get("window") or "1m").strip().lower()
+        if window not in WINDOW_DAYS_MAP:
+            window = "1m"
         if report_type not in {"basic", "investment"}:
             report_type = "basic"
         report_payload: dict[str, Any] | None = None
@@ -351,6 +389,9 @@ class DartReportPageView(View):
                     "structure_findings": [],
                     "limitations": [],
                 }
+        chart_payload = {}
+        if isinstance(report_payload, dict):
+            chart_payload = report_payload.get("market_chart", {})
 
         return render(
             request,
@@ -359,6 +400,15 @@ class DartReportPageView(View):
                 "company_name": company_name,
                 "corp_code": corp_code,
                 "report_type": report_type,
+                "window": window,
+                "window_options": [
+                    {"value": "all", "label": "전체"},
+                    {"value": "1m", "label": "최근 1개월"},
+                    {"value": "3m", "label": "최근 3개월"},
+                    {"value": "6m", "label": "최근 6개월"},
+                    {"value": "1y", "label": "최근 1년"},
+                ],
+                "chart_payload": chart_payload,
                 "query_attempted": query_attempted,
                 "report": report_payload,
             },
@@ -389,6 +439,87 @@ class DartInvestmentReportView(View):
 
     get = dispatch
     post = dispatch
+
+
+class DartDisclosureDetailView(View):
+    http_method_names = ["get"]
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        rcept_no = (request.GET.get("rcept_no") or "").strip()
+        report_nm = (request.GET.get("report_nm") or "").strip()
+        category = (request.GET.get("category") or "other").strip()
+        signals_raw = (request.GET.get("signals") or "").strip()
+        detected_signals = [item.strip() for item in signals_raw.split(",") if item.strip()]
+        if not rcept_no:
+            return JsonResponse(
+                {"ok": False, "error": {"code": "invalid_input", "message": "rcept_no는 필수입니다."}},
+                status=400,
+            )
+
+        try:
+            client = DartClient.from_env()
+            payload = client.fetch_original_document_payload(rcept_no=rcept_no)
+        except (MissingDartApiKeyError, DartAPIRequestError) as exc:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": {"code": "document_fetch_failed", "message": str(exc)},
+                    "rcept_no": rcept_no,
+                },
+                status=502,
+            )
+
+        zip_inspector = DocumentZipInspector()
+        xml_inspector = DocumentXMLInspector()
+        outline_builder = DocumentOutlineBuilder()
+        heading_builder = DocumentHeadingCandidatesBuilder()
+        text_builder = DocumentTextExtractBuilder()
+
+        try:
+            zip_result = zip_inspector.inspect(payload["content"])
+            xml_result = xml_inspector.inspect(payload["content"])
+            outline = outline_builder.build(xml_result)
+            headings = heading_builder.build(xml_result)
+            text_extract = text_builder.build(
+                markup_fallback_inspection=xml_result.get("markup_fallback_inspection"),
+                document_heading_candidates=headings,
+            )
+        except (DocumentZipInspectionError, DocumentXMLInspectionError) as exc:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": {"code": "document_inspection_failed", "message": str(exc)},
+                    "rcept_no": rcept_no,
+                },
+                status=502,
+            )
+
+        explanation = DisclosureExplanationBuilder().build(
+            report_nm=report_nm,
+            category=category,
+            detected_signals=detected_signals,
+            heading_preview=[item.get("text") for item in headings.get("heading_candidates", [])[:5] if isinstance(item, dict)],
+            text_snippets=text_extract.get("plain_text_snippets", [])[:5],
+        )
+        return JsonResponse(
+            {
+                "ok": True,
+                "rcept_no": rcept_no,
+                "original_view": {
+                    "viewer_url": payload.get("viewer_url"),
+                    "zip_inspection": {
+                        "entry_count": zip_result.get("entry_count"),
+                    },
+                    "document_outline": outline,
+                    "heading_candidates": headings.get("heading_candidates", [])[:10],
+                    "text_extract": text_extract,
+                    "limitations": [
+                        "원문 전체 렌더링이 아닌 안전한 구조/텍스트 추출 뷰입니다.",
+                    ],
+                },
+                "explanation_view": explanation,
+            }
+        )
 
 
 def _build_original_document_access(client: DartClient, raw_items: list[dict[str, Any]]) -> dict[str, Any]:
